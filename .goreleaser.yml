@@ -26,7 +26,6 @@ builds:
       - windows
     goarch:
       - amd64
-      - arm64
     env:
       - CGO_ENABLED=1
     overrides:
@@ -34,10 +33,6 @@ builds:
         goarch: amd64
         env:
           - CC=x86_64-w64-mingw32-gcc
-      - goos: windows
-        goarch: arm64
-        env:
-          - CC=aarch64-w64-mingw32-gcc
 
 archives:
   - id: cli
