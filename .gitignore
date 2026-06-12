@@ -1,0 +1,34 @@
+# Build output
+build/
+
+# Tool caches
+.gocache/
+.gomodcache/
+.golangci-cache/
+
+# Agent
+.agent/
+.agents/
+.codex/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Internal design docs (not published)
+TODO/
+
+# Sample data
+bitacora/
+
+# nested third-party repos (reference only)
+third_party/golangci-lint/
+
+# Research tree storage
+.research/
