@@ -14,6 +14,8 @@ endif
 BIN_DIR := ./build
 BIN     := $(BIN_DIR)/rt$(BIN_EXT)
 LIBSO   := $(BIN_DIR)/libretree.so
+DLL_AMD := $(BIN_DIR)/libretree-amd64.dll
+DLL_ARM := $(BIN_DIR)/libretree-arm64.dll
 
 # --- Lint ---
 GOLANGCI_LINT_VER ?= latest
@@ -43,13 +45,27 @@ $(BIN): $(GO_SOURCES) go.mod go.sum
 	@$(GO) build -gcflags 'all=-e' -ldflags '-X github.com/frudas24/research-tree/cmd/rt/cmds.Version=$(VERSION)' -o $@ ./cmd/rt
 	@echo "  binary: $@"
 
-# --- Shared library (C ABI bridge for FFI) ---
+# --- Shared library Linux (C ABI bridge for FFI) ---
 libretree.so: $(LIBSO)
 
 $(LIBSO): $(GO_SOURCES) go.mod go.sum
 	@mkdir -p $(BIN_DIR)
 	@CGO_ENABLED=1 $(GO) build -buildmode=c-shared -o $@ ./cmd/rt-bridge/
 	@echo "  shared library: $@"
+
+# --- Windows DLL (C ABI bridge for FFI) ---
+dll: $(DLL_AMD)
+	@echo "✅ dll complete"
+
+$(DLL_AMD): $(GO_SOURCES) go.mod go.sum
+	@mkdir -p $(BIN_DIR)
+	@CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 $(GO) build -buildmode=c-shared -o $@ ./cmd/rt-bridge/
+	@echo "  dll: $@"
+
+$(DLL_ARM): $(GO_SOURCES) go.mod go.sum
+	@mkdir -p $(BIN_DIR)
+	@CC=aarch64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=arm64 $(GO) build -buildmode=c-shared -o $@ ./cmd/rt-bridge/ 2>/dev/null || echo "  ⚠️  aarch64 MinGW not available — skipping arm64 DLL"
+	@echo "  dll: $@"
 
 # --- Quality pipeline (runs all checks, no build) ---
 check: fmt vet tidy commentlint lint
@@ -110,14 +126,15 @@ test-race:
 # --- Cleanup ---
 clean:
 	@echo "🗑  removing $(BIN_DIR)"
-	@rm -rf $(BIN_DIR) $(LIBSO) $(LIBSO:.so=.h)
+	@rm -rf $(BIN_DIR) $(LIBSO) $(LIBSO:.so=.h) $(DLL_AMD) $(DLL_ARM) $(DLL_AMD:.dll=.h) $(DLL_ARM:.dll=.h)
 
 # --- Help ---
 help:
 	@echo "Research Tree — Makefile targets"
 	@echo ""
 	@echo "  make build      Run all checks + build binary"
-	@echo "  make libretree.so Build C shared library for FFI (TypeScript/Python/...)  "
+	@echo "  make libretree.so Build C shared library for FFI (Linux)"
+	@echo "  make dll        Cross-compile Windows DLL (amd64)"
 	@echo "  make check      Run fmt + vet + tidy + commentlint + lint (no build)"
 	@echo "  make fmt        Format all Go sources"
 	@echo "  make vet        Static analysis"
