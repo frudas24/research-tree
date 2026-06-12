@@ -396,6 +396,7 @@ func verdictBadge(n *retree.Node) string {
 	return ""
 }
 
+// goldenBadge returns a ★ prefix for golden milestone nodes.
 func goldenBadge(n *retree.Node) string {
 	if n != nil && n.MilestoneClass == retree.MilestoneGolden {
 		return "★"

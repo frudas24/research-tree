@@ -35,20 +35,20 @@ type NodeSummary struct {
 
 // HotspotSummary describes one high-attention node in the status dashboard.
 type HotspotSummary struct {
-	ID                NodeID      `json:"id"`
-	Title             string      `json:"title"`
-	Status            NodeStatus  `json:"status"`
-	Outcome           Outcome     `json:"outcome"`
-	ClaimStatus       ClaimStatus `json:"claim_status"`
+	ID                NodeID         `json:"id"`
+	Title             string         `json:"title"`
+	Status            NodeStatus     `json:"status"`
+	Outcome           Outcome        `json:"outcome"`
+	ClaimStatus       ClaimStatus    `json:"claim_status"`
 	MilestoneClass    MilestoneClass `json:"milestone_class,omitempty"`
 	MilestoneKind     MilestoneKind  `json:"milestone_kind,omitempty"`
 	MilestoneReason   string         `json:"milestone_reason,omitempty"`
-	Agent             string      `json:"agent"`
-	PendingChildren   int         `json:"pending_children"`
-	AgeDays           int         `json:"age_days"`
-	PendingWeight     int         `json:"pending_weight"`
-	InconclusiveBonus int         `json:"inconclusive_bonus"`
-	Hotness           int         `json:"hotness"`
+	Agent             string         `json:"agent"`
+	PendingChildren   int            `json:"pending_children"`
+	AgeDays           int            `json:"age_days"`
+	PendingWeight     int            `json:"pending_weight"`
+	InconclusiveBonus int            `json:"inconclusive_bonus"`
+	Hotness           int            `json:"hotness"`
 }
 
 // StatusSummary is the stable dashboard contract for CLI and ABI consumers.

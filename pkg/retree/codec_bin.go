@@ -64,6 +64,7 @@ var (
 	}
 )
 
+// milestoneClassToBin encodes a MilestoneClass to its binary representation.
 func milestoneClassToBin(v MilestoneClass) uint8 {
 	switch v {
 	case MilestoneGolden:
@@ -73,6 +74,7 @@ func milestoneClassToBin(v MilestoneClass) uint8 {
 	}
 }
 
+// binToMilestoneClass decodes a byte back to a MilestoneClass and validity flag.
 func binToMilestoneClass(v uint8) (MilestoneClass, bool) {
 	switch v {
 	case 0:
@@ -84,6 +86,7 @@ func binToMilestoneClass(v uint8) (MilestoneClass, bool) {
 	}
 }
 
+// milestoneKindToBin encodes a MilestoneKind to its binary representation.
 func milestoneKindToBin(v MilestoneKind) uint8 {
 	switch v {
 	case MilestoneKindChampion:
@@ -97,6 +100,7 @@ func milestoneKindToBin(v MilestoneKind) uint8 {
 	}
 }
 
+// binToMilestoneKind decodes a byte back to a MilestoneKind and validity flag.
 func binToMilestoneKind(v uint8) (MilestoneKind, bool) {
 	switch v {
 	case 0:

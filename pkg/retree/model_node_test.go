@@ -57,6 +57,7 @@ func TestValidateNodeInvalidClaimStatus(t *testing.T) {
 	}
 }
 
+// TestValidateNodeGoldenRequiresReason verifies golden milestones must include a reason.
 func TestValidateNodeGoldenRequiresReason(t *testing.T) {
 	n := &Node{Frontmatter: Frontmatter{Title: "golden", MilestoneClass: MilestoneGolden}}
 	ApplyNodeDefaults(n, time.Now())
@@ -66,6 +67,7 @@ func TestValidateNodeGoldenRequiresReason(t *testing.T) {
 	}
 }
 
+// TestValidateNodeRejectsDanglingMilestoneKind verifies milestone_kind without class is rejected.
 func TestValidateNodeRejectsDanglingMilestoneKind(t *testing.T) {
 	n := &Node{Frontmatter: Frontmatter{Title: "dangling", MilestoneKind: MilestoneKindChampion}}
 	ApplyNodeDefaults(n, time.Now())
@@ -75,6 +77,7 @@ func TestValidateNodeRejectsDanglingMilestoneKind(t *testing.T) {
 	}
 }
 
+// TestValidateNodeAcceptsGoldenMilestone verifies a valid golden milestone passes validation.
 func TestValidateNodeAcceptsGoldenMilestone(t *testing.T) {
 	n := &Node{Frontmatter: Frontmatter{
 		Title:           "golden",

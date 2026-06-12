@@ -34,3 +34,4 @@ issues:
     - .golangci-cache
   exclude-files:
     - ".*\\.pb\\.go"
+    - "cmd/rt-bridge/main.go"

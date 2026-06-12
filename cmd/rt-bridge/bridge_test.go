@@ -83,6 +83,8 @@ func TestBridgeMergeUpdate(t *testing.T) {
 	}
 }
 
+// TestBridgeMergeUpdatePreservesMilestoneFields verifies that partial
+// merge updates preserve golden milestone metadata.
 func TestBridgeMergeUpdatePreservesMilestoneFields(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	s, err := retree.Init(root, retree.StorageJSON)

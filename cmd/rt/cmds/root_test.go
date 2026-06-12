@@ -738,7 +738,7 @@ func TestCLINewFlagsBodyParentsEdit(t *testing.T) {
 
 	// --body from file
 	tmpBody := filepath.Join(t.TempDir(), "body.md")
-	os.WriteFile(tmpBody, []byte("file content"), 0o644)
+	_ = os.WriteFile(tmpBody, []byte("file content"), 0o644)
 	_, err = runCLI(t, "--research-root", root, "node", "create", "--title", "file test", "--body-file", tmpBody)
 	if err != nil {
 		t.Fatalf("create with --body-file: %v", err)
@@ -776,7 +776,7 @@ func TestCLINewFlagsBodyParentsEdit(t *testing.T) {
 	}
 
 	// node edit --body-file replaces
-	os.WriteFile(tmpBody, []byte("from file replace"), 0o644)
+	_ = os.WriteFile(tmpBody, []byte("from file replace"), 0o644)
 	_, err = runCLI(t, "--research-root", root, "node", "edit", "2", "--body-file", tmpBody)
 	if err != nil {
 		t.Fatalf("edit --body-file: %v", err)

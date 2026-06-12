@@ -98,11 +98,11 @@ tidy:
 # --- Lint ---
 lint: commentlint
 	@echo "🔎 golangci-lint"
-	@if command -v golangci-lint &>/dev/null; then \
-	  golangci-lint run --timeout $(LINT_TIMEOUT) ./...; \
-	else \
-	  echo "⚠️  golangci-lint not installed — skipping (install: make tools)"; \
-	fi
+	@GOLINT=$$(command -v golangci-lint 2>/dev/null || echo "$$(go env GOPATH)/bin/golangci-lint"); \
+	if [ ! -x "$$GOLINT" ]; then \
+	  echo "❌ golangci-lint not installed — run: make tools"; exit 1; \
+	fi; \
+	$$GOLINT run --timeout $(LINT_TIMEOUT) ./...
 
 # --- Doc comment lint (always runs, uses in-tree tool) ---
 commentlint:
