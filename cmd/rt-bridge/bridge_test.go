@@ -47,7 +47,7 @@ func TestBridgeMergeUpdate(t *testing.T) {
 	}
 	existingBytes, _ := json.Marshal(existing)
 	var merged map[string]any
-	json.Unmarshal(existingBytes, &merged)
+	_ = json.Unmarshal(existingBytes, &merged)
 	for k, v := range partial {
 		merged[k] = v
 	}
@@ -114,7 +114,7 @@ func TestBridgeMergeUpdatePreservesMilestoneFields(t *testing.T) {
 	}
 	existingBytes, _ := json.Marshal(existing)
 	var merged map[string]any
-	json.Unmarshal(existingBytes, &merged)
+	_ = json.Unmarshal(existingBytes, &merged)
 	for k, v := range partial {
 		merged[k] = v
 	}
@@ -149,9 +149,9 @@ func TestBridgeCreateAndQuery(t *testing.T) {
 	a := &retree.Node{Frontmatter: retree.Frontmatter{Title: "root", Agent: "x", Tags: []string{"root-tag"}}}
 	b := &retree.Node{Frontmatter: retree.Frontmatter{Title: "child", Parents: []retree.NodeID{1}, Agent: "x"}}
 	c := &retree.Node{Frontmatter: retree.Frontmatter{Title: "grandchild", Parents: []retree.NodeID{2}}}
-	s.CreateNode(a)
-	s.CreateNode(b)
-	s.CreateNode(c)
+	_ = s.CreateNode(a)
+	_ = s.CreateNode(b)
+	_ = s.CreateNode(c)
 
 	// Filter by agent
 	ids, _ := s.ListNodes(retree.Filter{Agent: "x"})
@@ -172,7 +172,7 @@ func TestBridgeCreateAndQuery(t *testing.T) {
 	}
 
 	// Status query
-	s.UpdateNode(&retree.Node{Frontmatter: retree.Frontmatter{ID: 2, Title: "child", Status: retree.StatusDone, ClaimStatus: retree.ClaimProvisional}})
+	_ = s.UpdateNode(&retree.Node{Frontmatter: retree.Frontmatter{ID: 2, Title: "child", Status: retree.StatusDone, ClaimStatus: retree.ClaimProvisional}})
 	active, _ := s.ListNodes(retree.Filter{Status: retree.StatusActive})
 	if len(active) != 2 {
 		t.Fatalf("active filter: expected 2, got %d", len(active))

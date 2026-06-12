@@ -351,9 +351,7 @@ text at the end instead of replacing.`,
 				}
 				n.SupersededBy = uniqueNodeIDs(resolved)
 			}
-			for _, tag := range parseCSVStrings(addTags) {
-				n.Tags = append(n.Tags, tag)
-			}
+			n.Tags = append(n.Tags, parseCSVStrings(addTags)...)
 			toRm := map[string]struct{}{}
 			for _, tag := range parseCSVStrings(rmTags) {
 				toRm[tag] = struct{}{}
@@ -373,21 +371,22 @@ text at the end instead of replacing.`,
 			n.Tags = compacted
 
 			// Body replacement: --edit takes priority, then --body, then --body-file
-			if useEditor {
+			switch {
+			case useEditor:
 				edited, err := editBody(n.Body)
 				if err != nil {
 					return err
 				}
 				n.Body = edited
-			} else if bodyInline != "" {
+			case bodyInline != "":
 				n.Body = bodyInline
-			} else if bodyFile != "" {
+			case bodyFile != "":
 				b, err := readBody(bodyFile)
 				if err != nil {
 					return err
 				}
 				n.Body = b
-			} else if appendBody != "" {
+			case appendBody != "":
 				n.Body = appendMarkdownBlock(n.Body, appendBody)
 			}
 			if err := validateTerminalOutcome(n.Status, n.Outcome); err != nil {

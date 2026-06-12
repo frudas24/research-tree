@@ -185,7 +185,7 @@ func outcomeIcon(n *retree.Node) string {
 	}
 }
 
-// iconForNode returns an emoji icon for a node combining status and outcome.
+// IconForNode returns an emoji icon for a node combining status and outcome.
 func IconForNode(n *retree.Node) string {
 	if n.Status == retree.StatusActive {
 		return "▶"

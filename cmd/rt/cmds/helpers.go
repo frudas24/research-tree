@@ -55,7 +55,7 @@ func stripRunMetaBlocks(body string) string {
 		}
 		i++
 		if i < len(lines) && lines[i] == "```yaml" {
-			for i = i + 1; i < len(lines); i++ {
+			for i++; i < len(lines); i++ {
 				if lines[i] == "```" {
 					break
 				}
@@ -76,24 +76,6 @@ func parseNodeID(s string) (retree.NodeID, error) {
 		return 0, err
 	}
 	return retree.NodeID(u), nil
-}
-
-// parseIDsCSV parses a comma-separated string into NodeID slice.
-func parseIDsCSV(s string) ([]retree.NodeID, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil, nil
-	}
-	parts := strings.Split(s, ",")
-	out := make([]retree.NodeID, 0, len(parts))
-	for _, p := range parts {
-		id, err := parseNodeID(p)
-		if err != nil {
-			return nil, fmt.Errorf("invalid id %q: %w", p, err)
-		}
-		out = append(out, id)
-	}
-	return out, nil
 }
 
 // resolveParents resolves a comma-separated parent spec to NodeIDs.
@@ -241,13 +223,13 @@ func editBody(initial string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if initial != "" {
 		if _, err := tmp.WriteString(initial); err != nil {
 			return "", err
 		}
 	}
-	tmp.Close()
+	_ = tmp.Close()
 
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
@@ -781,9 +763,9 @@ func (c *colorizer) status(s retree.NodeStatus, text string) string {
 	}
 	switch s {
 	case retree.StatusActive:
-		return "[32m" + text + "[0m" // green
+		return "\033[32m" + text + "\033[0m" // green
 	case retree.StatusPaused:
-		return "[33m" + text + "[0m" // yellow
+		return "\033[33m" + text + "\033[0m" // yellow
 	default:
 		return text
 	}
@@ -796,11 +778,11 @@ func (c *colorizer) outcomeColor(o retree.Outcome, text string) string {
 	}
 	switch o {
 	case retree.OutcomeSuccess:
-		return "[36m" + text + "[0m" // cyan
+		return "\033[36m" + text + "\033[0m" // cyan
 	case retree.OutcomeFailure:
-		return "[31m" + text + "[0m" // red
+		return "\033[31m" + text + "\033[0m" // red
 	case retree.OutcomeInconclusive:
-		return "[35m" + text + "[0m" // magenta
+		return "\033[35m" + text + "\033[0m" // magenta
 	default:
 		return text
 	}
@@ -812,15 +794,6 @@ func (c *colorizer) golden(class retree.MilestoneClass, text string) string {
 		return text
 	}
 	return "\033[38;5;220m" + text + "\033[0m"
-}
-
-// dim applies a gray/dim ANSI code to the text for inactive elements.
-func (c *colorizer) dim(text string) string {
-	// dim applies a gray/dim ANSI code to the text for inactive elements.
-	if !c.enabled {
-		return text
-	}
-	return "\033[90m" + text + "\033[0m"
 }
 
 // parseOutcome converts a string to Outcome.

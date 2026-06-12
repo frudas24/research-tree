@@ -172,13 +172,14 @@ func ValidateResource(r Resource) error {
 	if !slices.Contains(validEndpointKinds, r.EndpointKind) {
 		return fmt.Errorf("%w: endpoint_kind=%q", ErrInvalidResource, r.EndpointKind)
 	}
-	if r.EndpointKind == EndpointNone {
+	switch {
+	case r.EndpointKind == EndpointNone:
 		if r.Endpoint != "" {
 			return fmt.Errorf("%w: endpoint requires endpoint_kind ip|dns", ErrInvalidResource)
 		}
-	} else if r.Endpoint == "" {
+	case r.Endpoint == "":
 		return fmt.Errorf("%w: endpoint required for endpoint_kind=%s", ErrInvalidResource, r.EndpointKind)
-	} else {
+	default:
 		switch r.EndpointKind {
 		case EndpointIP:
 			if net.ParseIP(r.Endpoint) == nil {
@@ -218,13 +219,14 @@ func ValidateRunRecord(r RunRecord) error {
 	if !slices.Contains(validEndpointKinds, r.EndpointKind) {
 		return fmt.Errorf("%w: run endpoint_kind=%q", ErrInvalidNode, r.EndpointKind)
 	}
-	if r.EndpointKind == EndpointNone {
+	switch {
+	case r.EndpointKind == EndpointNone:
 		if r.Endpoint != "" {
 			return fmt.Errorf("%w: run endpoint requires endpoint_kind ip|dns", ErrInvalidNode)
 		}
-	} else if r.Endpoint == "" {
+	case r.Endpoint == "":
 		return fmt.Errorf("%w: run endpoint required when endpoint_kind is set", ErrInvalidNode)
-	} else {
+	default:
 		switch r.EndpointKind {
 		case EndpointIP:
 			if net.ParseIP(r.Endpoint) == nil {

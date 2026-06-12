@@ -157,7 +157,7 @@ func retree_update_node(handle uintptr, nodeJSON *C.char) *C.char {
 	}
 	existingBytes, _ := json.Marshal(existing)
 	var merged map[string]any
-	json.Unmarshal(existingBytes, &merged)
+	_ = json.Unmarshal(existingBytes, &merged)
 	for k, v := range partial {
 		merged[k] = v
 	}

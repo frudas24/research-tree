@@ -58,11 +58,6 @@ func (s *Store) manifestPath() string { return filepath.Join(s.snapshotsDir(), "
 // nodeHistoryDir returns the path to the per-node history directory.
 func (s *Store) nodeHistoryDir() string { return filepath.Join(s.historyDir(), "nodes") }
 
-// nodeHistoryPath returns the path for a historical node version.
-func (s *Store) nodeHistoryPath(id NodeID, rev uint64, ts string) string {
-	return filepath.Join(s.nodeHistoryDir(), fmt.Sprintf("%04d", id), fmt.Sprintf("rev%04d_%s.json", rev, ts))
-}
-
 // snapshotPath returns the path for a snapshot archive by ID.
 func (s *Store) snapshotPath(id string) string {
 	return filepath.Join(s.snapshotsDir(), fmt.Sprintf("%s.tar.gz", id))

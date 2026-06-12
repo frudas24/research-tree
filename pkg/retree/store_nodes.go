@@ -126,7 +126,7 @@ func (s *Store) loadAllNodesBIN() ([]*Node, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	header := make([]byte, binHeaderSize)
 	if _, err := io.ReadFull(f, header); err != nil {
@@ -291,7 +291,7 @@ func appendJSONLine(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	enc := json.NewEncoder(f)
 	return enc.Encode(v)
 }
@@ -305,7 +305,7 @@ func readJSONLines[T any](path string) ([]T, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	out := make([]T, 0)
 	r := bufio.NewReader(f)
 	for {

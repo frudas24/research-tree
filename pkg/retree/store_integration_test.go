@@ -589,10 +589,10 @@ func TestSnapshotPreservesHistory(t *testing.T) {
 	hasHistory := false
 	f, err := os.Open(snapPath)
 	mustNoErr(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	mustNoErr(t, err)
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	for {
 		h, err := tr.Next()

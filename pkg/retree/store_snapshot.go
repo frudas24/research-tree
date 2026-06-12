@@ -58,11 +58,11 @@ func (s *Store) packSnapshot(dst string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz := gzip.NewWriter(f)
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tw := tar.NewWriter(gz)
-	defer tw.Close()
+	defer func() { _ = tw.Close() }()
 
 	return filepath.Walk(s.rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -93,7 +93,7 @@ func (s *Store) packSnapshot(dst string) error {
 		if err != nil {
 			return err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		_, err = io.Copy(tw, file)
 		return err
 	})
@@ -105,7 +105,7 @@ func fileSHA256(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
@@ -170,7 +170,7 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 		if err != nil {
 			return err
 		}
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 		if err := untarGz(snap, tmpDir); err != nil {
 			return err
 		}
@@ -196,12 +196,12 @@ func untarGz(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	for {
 		h, err := tr.Next()

@@ -1,3 +1,4 @@
+// Package cmds implements the CLI commands for the research-tree tool.
 package cmds
 
 import (

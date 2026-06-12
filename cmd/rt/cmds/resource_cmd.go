@@ -207,11 +207,12 @@ func newResourceListCmd(opts *RootOptions) *cobra.Command {
 			var b strings.Builder
 			for _, resource := range filtered {
 				state := "free"
-				if resource.Maintenance {
+				switch {
+				case resource.Maintenance:
 					state = "maintenance"
-				} else if !resource.Enabled {
+				case !resource.Enabled:
 					state = "disabled"
-				} else if leaseCount[resource.ID] > 0 {
+				case leaseCount[resource.ID] > 0:
 					state = "used"
 				}
 				b.WriteString(fmt.Sprintf("%s [%s] %s (%s)\n", resource.ID, resource.Kind, resource.Label, state))

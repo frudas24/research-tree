@@ -30,9 +30,9 @@ It creates a safety snapshot to /tmp before destroying as a last resort.
 
 			// Confirm
 			if !yes {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Destroy %s? [y/N]: ", root)
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Destroy %s? [y/N]: ", root)
 				var response string
-				fmt.Scanln(&response)
+				_, _ = fmt.Scanln(&response)
 				if response != "y" && response != "Y" {
 					return fmt.Errorf("aborted")
 				}
@@ -43,14 +43,14 @@ It creates a safety snapshot to /tmp before destroying as a last resort.
 			if err == nil {
 				snaps, _ := s.ListSnapshots()
 				if len(snaps) > 0 {
-					fmt.Fprintf(cmd.ErrOrStderr(), "rt: %d snapshots in history/ will be destroyed\n", len(snaps))
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "rt: %d snapshots in history/ will be destroyed\n", len(snaps))
 				}
 			}
 
 			backupDir, err := os.MkdirTemp("", "rt-destroy-backup-*")
 			if err == nil {
 				if err := copyDirContents(root, backupDir); err == nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "rt: safety backup saved to %s\n", backupDir)
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "rt: safety backup saved to %s\n", backupDir)
 				}
 			}
 
@@ -58,7 +58,7 @@ It creates a safety snapshot to /tmp before destroying as a last resort.
 				return fmt.Errorf("destroy failed: %w", err)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "destroyed %s\n", root)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "destroyed %s\n", root)
 			return nil
 		},
 	}

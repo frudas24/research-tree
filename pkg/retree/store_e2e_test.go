@@ -763,10 +763,10 @@ func TestE2ESimulator(t *testing.T) {
 		}
 		header := make([]byte, binHeaderSize)
 		if _, err := f.Read(header); err != nil {
-			f.Close()
+			_ = f.Close()
 			return fmt.Errorf("read header: %w", err)
 		}
-		f.Close()
+		_ = f.Close()
 		if _, err := ReadBinHeader(header); err != nil {
 			return fmt.Errorf("invalid binary header: %w", err)
 		}
@@ -861,9 +861,9 @@ func TestE2ESimulator(t *testing.T) {
 		}
 		headerPath := filepath.Join(binRoot, "nodes.bin")
 		f, _ := os.Open(headerPath)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		header := make([]byte, binHeaderSize)
-		f.Read(header)
+		_, _ = f.Read(header)
 		if _, err := ReadBinHeader(header); err != nil {
 			return fmt.Errorf("bin header invalid: %w", err)
 		}
