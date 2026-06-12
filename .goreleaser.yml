@@ -17,52 +17,44 @@ builds:
     env:
       - CGO_ENABLED=0
 
-  - id: bridge-linux
+  - id: bridge
     main: ./cmd/rt-bridge
     binary: libretree
     buildmode: c-shared
     goos:
       - linux
+      - windows
     goarch:
       - amd64
       - arm64
     env:
       - CGO_ENABLED=1
-
-  - id: bridge-win-amd64
-    main: ./cmd/rt-bridge
-    binary: libretree
-    buildmode: c-shared
-    goos:
-      - windows
-    goarch:
-      - amd64
-    env:
-      - CGO_ENABLED=1
-      - CC=x86_64-w64-mingw32-gcc
-
-  - id: bridge-win-arm64
-    main: ./cmd/rt-bridge
-    binary: libretree
-    buildmode: c-shared
-    goos:
-      - windows
-    goarch:
-      - arm64
-    env:
-      - CGO_ENABLED=1
-      - CC=aarch64-w64-mingw32-gcc
+    overrides:
+      - goos: windows
+        goarch: amd64
+        env:
+          - CC=x86_64-w64-mingw32-gcc
+      - goos: windows
+        goarch: arm64
+        env:
+          - CC=aarch64-w64-mingw32-gcc
 
 archives:
-  - id: default
+  - id: cli
+    builds: [rt]
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
       - README.md
       - docs/*
-    builds_info:
-      mode: 0644
+
+  - id: bridge
+    builds: [bridge]
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}-bridge_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
 
 checksum:
   name_template: "checksums.txt"
