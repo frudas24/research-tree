@@ -33,6 +33,9 @@ func openStore(rootPath string) (*Store, error) {
 	if err := s.ensureResourceLayout(); err != nil {
 		return nil, err
 	}
+	if err := s.ensureRelationsLayout(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -61,6 +64,9 @@ func initStore(rootPath string, format StorageFormat) (*Store, error) {
 		return nil, err
 	}
 	if err := os.WriteFile(s.edgesPath(), nil, 0o644); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(s.relationsPath(), nil, 0o644); err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(s.alertsPath(), nil, 0o644); err != nil {
@@ -150,6 +156,17 @@ func (s *Store) ensureResourceLayout() error {
 		return err
 	}
 	return nil
+}
+
+// ensureRelationsLayout backfills the relation index file for stores created
+// before typed node relations existed.
+func (s *Store) ensureRelationsLayout() error {
+	if _, err := os.Stat(s.relationsPath()); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(s.relationsPath(), nil, 0o644)
 }
 
 // readMeta reads and parses meta.json.

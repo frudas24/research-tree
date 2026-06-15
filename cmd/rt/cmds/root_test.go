@@ -1336,6 +1336,87 @@ func TestCLISemanticScalingPhase4(t *testing.T) {
 	}
 }
 
+// TestCLIRelationsAndLinks verifies typed relations, primary parent rendering, and the links command.
+func TestCLIRelationsAndLinks(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "root")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "baseline")
+	if _, err := runCLI(t,
+		"--research-root", root,
+		"node", "create",
+		"--title", "candidate",
+		"--parents", "1,2",
+		"--primary-parent", "1",
+		"--relation", "compares_against:2,inspired_by:1",
+	); err != nil {
+		t.Fatalf("create relation node failed: %v", err)
+	}
+
+	show, err := runCLI(t, "--research-root", root, "node", "show", "3")
+	if err != nil {
+		t.Fatalf("show failed: %v", err)
+	}
+	if !strings.Contains(show, "primary parent: 0001") || !strings.Contains(show, "relations: compares_against:0002") {
+		t.Fatalf("show missing primary parent/relations: %q", show)
+	}
+
+	links, err := runCLI(t, "--research-root", root, "--json", "links")
+	if err != nil {
+		t.Fatalf("links json failed: %v", err)
+	}
+	var entries []map[string]any
+	if err := json.Unmarshal([]byte(links), &entries); err != nil {
+		t.Fatalf("invalid links json: %v", err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 links (2 parents + 2 relations), got %d", len(entries))
+	}
+
+	filtered, err := runCLI(t, "--research-root", root, "links", "--type", "compares_against")
+	if err != nil {
+		t.Fatalf("links filter failed: %v", err)
+	}
+	if !strings.Contains(filtered, "compares_against") || strings.Contains(filtered, "parent") {
+		t.Fatalf("unexpected filtered links output: %q", filtered)
+	}
+}
+
+// TestCLILintAuditsRelationHygiene verifies lint surfaces relation and graph hygiene issues.
+func TestCLILintAuditsRelationHygiene(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "lonely")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "parent-a")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "parent-b")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "parent-c")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "parent-d")
+	if _, err := runCLI(t,
+		"--research-root", root,
+		"node", "create",
+		"--title", "crowded",
+		"--parents", "2,3,4,5",
+		"--relation", "compares_against:999,compares_against:999",
+	); err != nil {
+		t.Fatalf("create lint fixture failed: %v", err)
+	}
+
+	out, err := runCLI(t, "--research-root", root, "lint", "--max-parents", "4")
+	if err != nil {
+		t.Fatalf("lint failed: %v", err)
+	}
+	for _, needle := range []string{
+		"has 4 parents",
+		"relation compares_against:999 targets non-existent node",
+		"duplicate relation compares_against:999",
+		"isolated node: no parents and no children",
+	} {
+		if !strings.Contains(out, needle) {
+			t.Fatalf("lint output missing %q: %q", needle, out)
+		}
+	}
+}
+
 // containsString reports whether a string slice contains the requested value.
 func containsString(items []string, want string) bool {
 	for _, item := range items {

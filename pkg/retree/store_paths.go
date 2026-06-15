@@ -38,6 +38,9 @@ func (s *Store) resourcesPath() string { return filepath.Join(s.rootPath, "resou
 // leasesPath returns the path to leases.json.
 func (s *Store) leasesPath() string { return filepath.Join(s.rootPath, "leases.json") }
 
+// relationsPath returns the path to relations.jsonl.
+func (s *Store) relationsPath() string { return filepath.Join(s.rootPath, "relations.jsonl") }
+
 // resourceEventsPath returns the path to resource_events.jsonl.
 func (s *Store) resourceEventsPath() string {
 	return filepath.Join(s.rootPath, "resource_events.jsonl")

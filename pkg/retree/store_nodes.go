@@ -193,7 +193,10 @@ func (s *Store) persistGraph(g *Graph) error {
 			return err
 		}
 	}
-	return s.regenerateEdgesFromGraph(g)
+	if err := s.regenerateEdgesFromGraph(g); err != nil {
+		return err
+	}
+	return s.regenerateRelations(g)
 }
 
 // writeAllNodesJSON writes all nodes as individual JSON files.
@@ -276,6 +279,28 @@ func (s *Store) regenerateEdgesFromGraph(g *Graph) error {
 	return os.Rename(tmp, s.edgesPath())
 }
 
+// regenerateRelations reconstructs relations.jsonl from the graph's node data.
+func (s *Store) regenerateRelations(g *Graph) error {
+	var b strings.Builder
+	ids := make([]NodeID, 0, len(g.Nodes))
+	for id := range g.Nodes {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		n := g.Nodes[id]
+		for _, rel := range n.Relations {
+			line := fmt.Sprintf("{\"from\":%d,\"to\":%d,\"type\":%q}\n", id, rel.Target, rel.Type)
+			b.WriteString(line)
+		}
+	}
+	tmp := s.relationsPath() + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.relationsPath())
+}
+
 // RegenerateEdges reconstructs the edges.jsonl index from stored nodes.
 func (s *Store) RegenerateEdges() error {
 	g, err := s.loadGraph()
@@ -283,6 +308,85 @@ func (s *Store) RegenerateEdges() error {
 		return err
 	}
 	return s.regenerateEdgesFromGraph(g)
+}
+
+// relationsLine is the on-disk format for one relation edge in relations.jsonl.
+type relationsLine struct {
+	From NodeID       `json:"from"`
+	To   NodeID       `json:"to"`
+	Type RelationType `json:"type"`
+}
+
+// listRelations returns all relations for a specific node from relations.jsonl.
+func (s *Store) listRelations(id NodeID) ([]Relation, error) {
+	all, err := s.readRelationsLines()
+	if err != nil {
+		return nil, err
+	}
+	var out []Relation
+	for _, rl := range all {
+		if rl.From == id {
+			out = append(out, Relation{Type: rl.Type, Target: rl.To})
+		}
+	}
+	return out, nil
+}
+
+// listAllRelations returns all relation edges with full context.
+func (s *Store) listAllRelations() ([]struct {
+	From     NodeID
+	Relation Relation
+}, error) {
+	all, err := s.readRelationsLines()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]struct {
+		From     NodeID
+		Relation Relation
+	}, 0, len(all))
+	for _, rl := range all {
+		out = append(out, struct {
+			From     NodeID
+			Relation Relation
+		}{From: rl.From, Relation: Relation{Type: rl.Type, Target: rl.To}})
+	}
+	return out, nil
+}
+
+// readRelationsLines reads all lines from relations.jsonl.
+func (s *Store) readRelationsLines() ([]relationsLine, error) {
+	f, err := os.Open(s.relationsPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	var out []relationsLine
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var rl relationsLine
+		if err := json.Unmarshal([]byte(line), &rl); err != nil {
+			return nil, err
+		}
+		out = append(out, rl)
+	}
+	return out, sc.Err()
+}
+
+// regenerateRelationsFromNodes rebuilds relations.jsonl from all stored nodes.
+func (s *Store) regenerateRelationsFromNodes() error {
+	g, err := s.loadGraph()
+	if err != nil {
+		return err
+	}
+	return s.regenerateRelations(g)
 }
 
 // appendJSONLine appends a JSON-encoded value as a single line to the file.

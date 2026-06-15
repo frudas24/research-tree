@@ -414,3 +414,21 @@ func (s *Store) RestoreSnapshot(snapshotID string) error {
 func (s *Store) GetNodeHistory(id NodeID) ([]*Node, error) {
 	return s.getNodeHistory(id)
 }
+
+// ListRelations returns all relations for a given node from the relations.jsonl index.
+func (s *Store) ListRelations(id NodeID) ([]Relation, error) {
+	return s.listRelations(id)
+}
+
+// ListAllRelations returns all relation edges across all nodes as (from, relation, target) triples.
+func (s *Store) ListAllRelations() ([]struct {
+	From     NodeID
+	Relation Relation
+}, error) {
+	return s.listAllRelations()
+}
+
+// RegenerateRelations rebuilds the relations.jsonl index from stored node data.
+func (s *Store) RegenerateRelations() error {
+	return s.regenerateRelationsFromNodes()
+}

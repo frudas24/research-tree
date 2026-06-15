@@ -116,6 +116,26 @@ func binToMilestoneKind(v uint8) (MilestoneKind, bool) {
 	}
 }
 
+// relation type binary encoding (deterministic, versioned)
+var (
+	relationTypeToBin = map[RelationType]uint8{
+		"":                 0,
+		RelDependsOn:       1,
+		RelComparesAgainst: 2,
+		RelInspiredBy:      3,
+		RelAggregates:      4,
+	}
+	binToRelationType = map[uint8]RelationType{
+		0: "",
+		1: RelDependsOn,
+		2: RelComparesAgainst,
+		3: RelInspiredBy,
+		4: RelAggregates,
+	}
+)
+
+const relationExtensionMarker uint8 = 0xA1
+
 // MarshalNodeBinary encodes a node into the binary wire format v1.
 // Returns the raw bytes without the file header.
 func MarshalNodeBinary(n *Node) ([]byte, error) {
@@ -227,6 +247,25 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 	binWriteU8(&buf, milestoneClassToBin(n.MilestoneClass))
 	binWriteU8(&buf, milestoneKindToBin(n.MilestoneKind))
 	binWriteString32(&buf, n.MilestoneReason)
+	binWriteU8(&buf, relationExtensionMarker)
+	// relations
+	binWriteU16(&buf, uint16(len(n.Relations)))
+	for _, rel := range n.Relations {
+		rt, ok := relationTypeToBin[rel.Type]
+		if !ok {
+			return nil, fmt.Errorf("%w: unknown relation type %q", ErrInvalidNode, rel.Type)
+		}
+		binWriteU8(&buf, rt)
+		binWriteU64(&buf, uint64(rel.Target))
+		binWriteString32(&buf, rel.Note)
+	}
+	// primary_parent (optional u64)
+	if n.PrimaryParent != nil {
+		binWriteU8(&buf, 1)
+		binWriteU64(&buf, uint64(*n.PrimaryParent))
+	} else {
+		binWriteU8(&buf, 0)
+	}
 
 	return buf.Bytes(), nil
 }
@@ -562,6 +601,57 @@ func UnmarshalNodeBinary(b []byte) (*Node, error) {
 		return nil, err
 	}
 	n.MilestoneReason = milestoneReason
+	if pos == len(b) {
+		return n, nil
+	}
+	marker, err := binReadU8(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	if marker != relationExtensionMarker {
+		return nil, fmt.Errorf("%w: unknown extension marker byte %d", ErrInvalidNode, marker)
+	}
+	// relations
+	relCount, err := binReadU16(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	n.Relations = make([]Relation, 0, relCount)
+	for i := uint16(0); i < relCount; i++ {
+		rtByte, rerr := binReadU8(b, &pos)
+		if rerr != nil {
+			return nil, rerr
+		}
+		rt, ok := binToRelationType[rtByte]
+		if !ok {
+			return nil, fmt.Errorf("%w: unknown relation type byte %d", ErrInvalidNode, rtByte)
+		}
+		target, rerr := binReadU64(b, &pos)
+		if rerr != nil {
+			return nil, rerr
+		}
+		note, rerr := binReadString32(b, &pos)
+		if rerr != nil {
+			return nil, rerr
+		}
+		n.Relations = append(n.Relations, Relation{Type: rt, Target: NodeID(target), Note: note})
+	}
+	if pos == len(b) {
+		return n, nil
+	}
+	// primary_parent
+	ppPresent, err := binReadU8(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	if ppPresent != 0 {
+		ppVal, err := binReadU64(b, &pos)
+		if err != nil {
+			return nil, err
+		}
+		pp := NodeID(ppVal)
+		n.PrimaryParent = &pp
+	}
 
 	// Strict: reject trailing bytes
 	if pos != len(b) {

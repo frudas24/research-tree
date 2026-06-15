@@ -32,7 +32,7 @@ func newNodeCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeCreateCmd constructs the "node create" subcommand.
 func newNodeCreateCmd(opts *RootOptions) *cobra.Command {
-	var title, status, claimStatus, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, parentsCSV, continuedByCSV, supersededByCSV, agent, tagsCSV, bodyInline, bodyFile string
+	var title, status, claimStatus, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, parentsCSV, continuedByCSV, supersededByCSV, agent, tagsCSV, bodyInline, bodyFile, relationsCSV, primaryParentStr string
 	var outcome string
 	var useEditor bool
 	cmd := &cobra.Command{
@@ -67,6 +67,18 @@ is taken from --body or --body-file if provided.`,
 			if err != nil {
 				return err
 			}
+			relations, err := resolveRelations(store, relationsCSV)
+			if err != nil {
+				return err
+			}
+			var primaryParent *retree.NodeID
+			if strings.TrimSpace(primaryParentStr) != "" {
+				pp, err := parseNodeID(primaryParentStr)
+				if err != nil {
+					return fmt.Errorf("--primary-parent: %w", err)
+				}
+				primaryParent = &pp
+			}
 			n := &retree.Node{
 				Frontmatter: retree.Frontmatter{
 					Title:           title,
@@ -83,6 +95,8 @@ is taken from --body or --body-file if provided.`,
 					SupersededBy:    supersededBy,
 					Agent:           agent,
 					Tags:            parseCSVStrings(tagsCSV),
+					Relations:       relations,
+					PrimaryParent:   primaryParent,
 				},
 				Body: body,
 			}
@@ -112,6 +126,8 @@ is taken from --body or --body-file if provided.`,
 	cmd.Flags().StringVar(&bodyInline, "body", "", "Body markdown (inline)")
 	cmd.Flags().StringVar(&bodyFile, "body-file", "", "Body markdown file")
 	cmd.Flags().BoolVar(&useEditor, "edit", false, "Open $EDITOR to write body")
+	cmd.Flags().StringVar(&relationsCSV, "relation", "", "Add typed relation (type:target, e.g. compares_against:5)")
+	cmd.Flags().StringVar(&primaryParentStr, "primary-parent", "", "Designate a primary parent ID")
 	_ = cmd.MarkFlagRequired("title")
 	return cmd
 }
@@ -256,7 +272,7 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeEditCmd constructs the "node edit" subcommand.
 func newNodeEditCmd(opts *RootOptions) *cobra.Command {
-	var status, claimStatus, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, addTags, rmTags, parentsCSV, addParentsCSV, rmParentsCSV, continuedByCSV, supersededByCSV, bodyInline, bodyFile, appendBody string
+	var status, claimStatus, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, addTags, rmTags, parentsCSV, addParentsCSV, rmParentsCSV, continuedByCSV, supersededByCSV, bodyInline, bodyFile, appendBody, relationsCSV, addRelationsCSV, rmRelationsCSV, primaryParentStr string
 	var outcome string
 	var useEditor bool
 	cmd := &cobra.Command{
@@ -351,6 +367,51 @@ text at the end instead of replacing.`,
 				}
 				n.SupersededBy = uniqueNodeIDs(resolved)
 			}
+			// Relations
+			if relationsCSV != "" {
+				resolved, err := resolveRelations(store, relationsCSV)
+				if err != nil {
+					return err
+				}
+				n.Relations = resolved
+			}
+			if addRelationsCSV != "" {
+				resolved, err := resolveRelations(store, addRelationsCSV)
+				if err != nil {
+					return err
+				}
+				n.Relations = append(n.Relations, resolved...)
+			}
+			if rmRelationsCSV != "" {
+				resolved, err := resolveRelations(store, rmRelationsCSV)
+				if err != nil {
+					return err
+				}
+				toRemove := make(map[string]struct{}, len(resolved))
+				for _, rel := range resolved {
+					toRemove[fmt.Sprintf("%s:%d", rel.Type, rel.Target)] = struct{}{}
+				}
+				filtered := make([]retree.Relation, 0, len(n.Relations))
+				for _, rel := range n.Relations {
+					key := fmt.Sprintf("%s:%d", rel.Type, rel.Target)
+					if _, drop := toRemove[key]; drop {
+						continue
+					}
+					filtered = append(filtered, rel)
+				}
+				n.Relations = filtered
+			}
+			if cmd.Flags().Changed("primary-parent") {
+				if strings.TrimSpace(primaryParentStr) == "" {
+					n.PrimaryParent = nil
+				} else {
+					pp, err := parseNodeID(primaryParentStr)
+					if err != nil {
+						return fmt.Errorf("--primary-parent: %w", err)
+					}
+					n.PrimaryParent = &pp
+				}
+			}
 			n.Tags = append(n.Tags, parseCSVStrings(addTags)...)
 			toRm := map[string]struct{}{}
 			for _, tag := range parseCSVStrings(rmTags) {
@@ -419,6 +480,10 @@ text at the end instead of replacing.`,
 	cmd.Flags().StringVar(&bodyFile, "body-file", "", "Replace body from file")
 	cmd.Flags().BoolVar(&useEditor, "edit", false, "Open $EDITOR to edit body")
 	cmd.Flags().StringVar(&appendBody, "append-body", "", "Text to append to body")
+	cmd.Flags().StringVar(&relationsCSV, "relation", "", "Replace relations (type:target, e.g. compares_against:5)")
+	cmd.Flags().StringVar(&addRelationsCSV, "add-relation", "", "Add relation (type:target)")
+	cmd.Flags().StringVar(&rmRelationsCSV, "rm-relation", "", "Remove relation (type:target)")
+	cmd.Flags().StringVar(&primaryParentStr, "primary-parent", "", "Set primary parent ID (empty clears)")
 	return cmd
 }
 

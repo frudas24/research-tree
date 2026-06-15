@@ -53,6 +53,8 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newFeedCmd(opts))
 	cmd.AddCommand(newResourceCmd(opts))
 	cmd.AddCommand(newGoldenCmd(opts))
+	cmd.AddCommand(newLinksCmd(opts))
+	cmd.AddCommand(newLintCmd(opts))
 	return cmd
 }
 

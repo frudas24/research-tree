@@ -155,6 +155,9 @@ Graph invariants:
 | `RemoveTags(id, tags...)` | idempotent tag removal |
 | `AddParents(id, parents...)` | additive parent edits |
 | `RemoveParents(id, parents...)` | subtractive parent edits |
+| `ListRelations(id)` | returns typed relation edges for one node |
+| `ListAllRelations()` | returns all typed relation edges across the graph |
+| `RegenerateRelations()` | rebuilds `relations.jsonl` from node data |
 | `AddArtifact(id, a)` | attach path or embedded artifact |
 | `RemoveArtifact(id, matcher)` | remove artifacts matching non-zero fields |
 | `EmbedArtifact(id, localPath, desc)` | copy local file into store |
@@ -179,6 +182,8 @@ Additional semantic fields:
 - `exit_criteria`: explicit closure condition for active work
 - `continued_by`: operational continuation links
 - `superseded_by`: semantic replacement links
+- `relations`: typed cross-links such as comparison, inspiration, dependency, or aggregation
+- `primary_parent`: designated canonical parent when a node has multiple DAG parents
 - `runs`: structured execution records kept alongside the markdown audit trail
 - `run_validity_counts`: additive dashboard counts for valid vs invalid vs unknown latest runs
 
@@ -202,6 +207,7 @@ Key properties:
 | `StorageFormat()` | returns active codec |
 | `MigrateStorageFormat(target)` | migrates `json ↔ bin` |
 | `RegenerateEdges()` | rebuilds edges from node graph |
+| `RegenerateRelations()` | rebuilds relation edges from node graph |
 | `NextID()` | previews next ID |
 
 Operational notes:

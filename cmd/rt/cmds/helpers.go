@@ -143,6 +143,61 @@ func findNodesByTitle(store *retree.Store, needle string) ([]retree.NodeID, erro
 	return matches, nil
 }
 
+// parseRelationType maps a CLI string to a retree.RelationType.
+func parseRelationType(s string) (retree.RelationType, error) {
+	s = strings.TrimSpace(s)
+	switch s {
+	case "depends_on":
+		return retree.RelDependsOn, nil
+	case "compares_against":
+		return retree.RelComparesAgainst, nil
+	case "inspired_by":
+		return retree.RelInspiredBy, nil
+	case "aggregates":
+		return retree.RelAggregates, nil
+	default:
+		return "", fmt.Errorf("unknown relation type %q (valid: depends_on, compares_against, inspired_by, aggregates)", s)
+	}
+}
+
+// resolveRelations parses a comma-separated "type:target" specification.
+// Each token has the form "compares_against:42" or "inspired_by:My Node Title".
+func resolveRelations(store *retree.Store, csv string) ([]retree.Relation, error) {
+	csv = strings.TrimSpace(csv)
+	if csv == "" {
+		return nil, nil
+	}
+	parts := strings.Split(csv, ",")
+	out := make([]retree.Relation, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		colon := strings.IndexByte(part, ':')
+		if colon < 1 {
+			return nil, fmt.Errorf("invalid relation spec %q (expected type:target)", part)
+		}
+		relType, err := parseRelationType(part[:colon])
+		if err != nil {
+			return nil, err
+		}
+		targetSpec := strings.TrimSpace(part[colon+1:])
+		if targetSpec == "" {
+			return nil, fmt.Errorf("invalid relation spec %q: target required", part)
+		}
+		target, err := resolveParents(store, targetSpec)
+		if err != nil {
+			return nil, fmt.Errorf("relation target %q: %w", targetSpec, err)
+		}
+		if len(target) != 1 {
+			return nil, fmt.Errorf("relation spec %q resolved to %d targets (expected 1)", targetSpec, len(target))
+		}
+		out = append(out, retree.Relation{Type: relType, Target: target[0]})
+	}
+	return out, nil
+}
+
 // parseCSVStrings parses a comma-separated string into sorted unique strings.
 func parseCSVStrings(s string) []string {
 	s = strings.TrimSpace(s)
@@ -499,6 +554,20 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 			ids[i] = fmt.Sprintf("%04d", c)
 		}
 		b.WriteString(fmt.Sprintf("  superseded by: %s\n", strings.Join(ids, ", ")))
+	}
+	if n.PrimaryParent != nil {
+		b.WriteString(fmt.Sprintf("  primary parent: %04d\n", *n.PrimaryParent))
+	}
+	if len(n.Relations) > 0 {
+		lines := make([]string, len(n.Relations))
+		for i, rel := range n.Relations {
+			note := ""
+			if rel.Note != "" {
+				note = fmt.Sprintf(" (%s)", rel.Note)
+			}
+			lines[i] = fmt.Sprintf("%s:%04d%s", rel.Type, rel.Target, note)
+		}
+		b.WriteString(fmt.Sprintf("  relations: %s\n", strings.Join(lines, ", ")))
 	}
 	if len(leases) > 0 {
 		b.WriteString("  resources:\n")

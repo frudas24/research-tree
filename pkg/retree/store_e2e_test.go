@@ -701,6 +701,11 @@ func TestE2ESimulator(t *testing.T) {
 			{Hash: "a1b2c3d4e5f6a7b8c9d0e1f2", Message: "initial commit with long message"},
 			{Hash: "ff", Message: ""},
 		}
+		full.Relations = []Relation{
+			{Type: RelComparesAgainst, Target: 1, Note: "baseline comparison"},
+			{Type: RelInspiredBy, Target: 2},
+		}
+		full.PrimaryParent = nil // nil is valid — no primary parent designated
 		full.Artifacts = []Artifact{
 			{Mode: ArtifactPath, Host: "server.01", Path: "/data/models/large.bin", Description: "model file", SizeBytes: 12345678901},
 			{Mode: ArtifactEmbedded, Path: "artifacts/0099/plot.png", Description: "", SizeBytes: 0},

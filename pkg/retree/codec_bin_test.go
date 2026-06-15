@@ -31,6 +31,10 @@ func fullTestNode() *Node {
 			MilestoneClass:  MilestoneGolden,
 			MilestoneKind:   MilestoneKindBreakthrough,
 			MilestoneReason: "compressed teacher substrate by orders of magnitude",
+			Relations: []Relation{
+				{Type: RelComparesAgainst, Target: 7, Note: "baseline"},
+				{Type: RelInspiredBy, Target: 8},
+			},
 		},
 		Commits: []GitCommit{
 			{Hash: "abc123def", Message: "flag --top-k"},
@@ -48,6 +52,8 @@ func fullTestNode() *Node {
 		Body:               "## Hypothesis\nk=128 gives better coverage than k=64.\n",
 	}
 	ApplyNodeDefaults(n, n.Created)
+	pp := NodeID(1)
+	n.PrimaryParent = &pp
 	return n
 }
 
@@ -100,6 +106,12 @@ func TestBinaryRoundtripFull(t *testing.T) {
 	}
 	if got.MilestoneClass != jsonRef.MilestoneClass || got.MilestoneKind != jsonRef.MilestoneKind || got.MilestoneReason != jsonRef.MilestoneReason {
 		t.Fatalf("milestone mismatch: class=%q/%q kind=%q/%q reason=%q/%q", got.MilestoneClass, jsonRef.MilestoneClass, got.MilestoneKind, jsonRef.MilestoneKind, got.MilestoneReason, jsonRef.MilestoneReason)
+	}
+	if !reflect.DeepEqual(got.Relations, jsonRef.Relations) {
+		t.Fatalf("relations mismatch: %+v vs %+v", got.Relations, jsonRef.Relations)
+	}
+	if (got.PrimaryParent == nil) != (jsonRef.PrimaryParent == nil) || (got.PrimaryParent != nil && *got.PrimaryParent != *jsonRef.PrimaryParent) {
+		t.Fatalf("primary parent mismatch: %v vs %v", got.PrimaryParent, jsonRef.PrimaryParent)
 	}
 	if !reflect.DeepEqual(got.ContinuedBy, jsonRef.ContinuedBy) || !reflect.DeepEqual(got.SupersededBy, jsonRef.SupersededBy) {
 		t.Fatalf("semantic links mismatch: continued=%v/%v superseded=%v/%v", got.ContinuedBy, jsonRef.ContinuedBy, got.SupersededBy, jsonRef.SupersededBy)

@@ -41,6 +41,13 @@ var validMilestoneKinds = []MilestoneKind{
 	MilestoneKindPivot,
 }
 
+var validRelationTypes = []RelationType{
+	RelDependsOn,
+	RelComparesAgainst,
+	RelInspiredBy,
+	RelAggregates,
+}
+
 var (
 	validResourceKinds = []ResourceKind{ResourceMachine, ResourceGPU, ResourceCPUSlot, ResourceOther}
 	validEndpointKinds = []EndpointKind{EndpointNone, EndpointIP, EndpointDNS}
@@ -136,6 +143,22 @@ func ValidateNode(n *Node) error {
 	for _, r := range n.Runs {
 		if err := ValidateRunRecord(r); err != nil {
 			return err
+		}
+	}
+	for _, rel := range n.Relations {
+		if rel.Target == 0 {
+			return fmt.Errorf("%w: relation target cannot be 0", ErrInvalidNode)
+		}
+		if !slices.Contains(validRelationTypes, rel.Type) {
+			return fmt.Errorf("%w: unknown relation type %q", ErrInvalidNode, rel.Type)
+		}
+	}
+	if n.PrimaryParent != nil {
+		if *n.PrimaryParent == 0 {
+			return fmt.Errorf("%w: primary_parent cannot be 0", ErrInvalidNode)
+		}
+		if !slices.Contains(n.Parents, *n.PrimaryParent) {
+			return fmt.Errorf("%w: primary_parent %d not in parents", ErrInvalidNode, *n.PrimaryParent)
 		}
 	}
 	return nil
@@ -269,6 +292,11 @@ func CloneNode(n *Node) *Node {
 	cpy.Runs = append([]RunRecord(nil), n.Runs...)
 	cpy.Artifacts = append([]Artifact(nil), n.Artifacts...)
 	cpy.InvalidatedBy = append([]NodeID(nil), n.InvalidatedBy...)
+	cpy.Relations = append([]Relation(nil), n.Relations...)
+	if n.PrimaryParent != nil {
+		pp := *n.PrimaryParent
+		cpy.PrimaryParent = &pp
+	}
 	return &cpy
 }
 

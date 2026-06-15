@@ -22,7 +22,7 @@ func TestInitCreatesLayoutAndOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	for _, p := range []string{s.metaPath(), s.nodesDir(), s.historyDir(), s.nextIDPath(), s.edgesPath()} {
+	for _, p := range []string{s.metaPath(), s.nodesDir(), s.historyDir(), s.nextIDPath(), s.edgesPath(), s.relationsPath()} {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatalf("expected path exists %s: %v", p, err)
 		}
@@ -33,6 +33,62 @@ func TestInitCreatesLayoutAndOpen(t *testing.T) {
 	}
 	if opened.StorageFormat() != StorageJSON {
 		t.Fatalf("format mismatch: %v", opened.StorageFormat())
+	}
+}
+
+// TestOpenBackfillsMissingRelationsLayout verifies legacy stores gain relations.jsonl on open.
+func TestOpenBackfillsMissingRelationsLayout(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	if err := os.Remove(s.relationsPath()); err != nil {
+		t.Fatalf("remove relations index: %v", err)
+	}
+	opened, err := Open(s.rootPath)
+	if err != nil {
+		t.Fatalf("open after removing relations index: %v", err)
+	}
+	if _, err := os.Stat(opened.relationsPath()); err != nil {
+		t.Fatalf("expected backfilled relations.jsonl: %v", err)
+	}
+}
+
+// TestRelationIndexLifecycle verifies typed relations persist and rebuild through the relation index.
+func TestRelationIndexLifecycle(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	baseline := &Node{Frontmatter: Frontmatter{Title: "baseline"}}
+	mustNoErr(t, s.CreateNode(root))
+	mustNoErr(t, s.CreateNode(baseline))
+	primary := root.ID
+	child := &Node{Frontmatter: Frontmatter{
+		Title:         "candidate",
+		Parents:       []NodeID{root.ID, baseline.ID},
+		PrimaryParent: &primary,
+		Relations: []Relation{
+			{Type: RelComparesAgainst, Target: baseline.ID, Note: "benchmark baseline"},
+			{Type: RelInspiredBy, Target: root.ID},
+		},
+	}}
+	mustNoErr(t, s.CreateNode(child))
+
+	rels, err := s.ListRelations(child.ID)
+	mustNoErr(t, err)
+	if len(rels) != 2 {
+		t.Fatalf("expected 2 relations, got %d", len(rels))
+	}
+	all, err := s.ListAllRelations()
+	mustNoErr(t, err)
+	if len(all) != 2 {
+		t.Fatalf("expected 2 indexed relation edges, got %d", len(all))
+	}
+
+	if err := os.Remove(s.relationsPath()); err != nil {
+		t.Fatalf("remove relations index: %v", err)
+	}
+	mustNoErr(t, s.RegenerateRelations())
+	all, err = s.ListAllRelations()
+	mustNoErr(t, err)
+	if len(all) != 2 {
+		t.Fatalf("expected 2 relation edges after regeneration, got %d", len(all))
 	}
 }
 

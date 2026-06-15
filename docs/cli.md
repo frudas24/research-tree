@@ -39,9 +39,13 @@ rt node create --title "Scoped claim" --scope "mistral-q4km ctx=2048 greedy"
 rt node create --title "Active task" --exit-criteria "close after 3 reproducible seeds"
 rt node create --title "Run note" --body-file ./notes.md
 rt node create --title "Done node" --status done --outcome success
+rt node create --title "Candidate" --parents 1,2 --primary-parent 1
+rt node create --title "Candidate" --relation compares_against:2
 ```
 
 - `--parents` accepts numeric IDs or unique title substrings.
+- `--primary-parent` must reference one of the node's DAG parents.
+- `--relation` adds typed cross-links such as `depends_on`, `compares_against`, `inspired_by`, and `aggregates`.
 - `--edit` opens `$EDITOR` and takes precedence over `--body` / `--body-file`.
 - `status=done` requires terminal outcome: `success`, `failure`, or `inconclusive`.
 
@@ -58,7 +62,7 @@ rt node show 1 --json
 Human views in `show`, `list`, and `tree` may append verdict badges such as
 `[failure]`, `[inconclusive]`, or `[superseded]` to improve scanability.
 `show` also renders `scope`, `exit criteria`, `continued by`, `superseded by`,
-and the latest parsed `run-meta` block when present.
+`primary parent`, typed `relations`, and the latest parsed `run-meta` block when present.
 When available, the latest run is sourced from structured `runs` and then
 rendered in human-readable form.
 
@@ -77,11 +81,15 @@ rt node edit 4 --rm-parents 2
 rt node edit 4 --add-tags "gpu,bench"
 rt node edit 4 --rm-tags "draft"
 rt node edit 4 --append-body "New note"
+rt node edit 4 --relation compares_against:9
+rt node edit 4 --add-relation inspired_by:7
+rt node edit 4 --rm-relation inspired_by:7
 ```
 
 - `--parents` replaces the full parent set.
 - `--add-parents` and `--rm-parents` perform atomic parent edits.
 - `--continued-by` and `--superseded-by` add semantic continuity links distinct from DAG parents.
+- `--relation` replaces the relation set; `--add-relation` / `--rm-relation` mutate it atomically.
 - Parent resolution accepts IDs or unique title substrings.
 - Cycle creation is rejected.
 
@@ -318,6 +326,32 @@ rt tree --status active
 rt tree --flat
 rt tree --json
 ```
+
+### `rt links`
+
+```bash
+rt links
+rt links --type parent
+rt links --type compares_against --json
+```
+
+Shows a flat edge view across both DAG parent links and typed relations.
+
+### `rt lint`
+
+```bash
+rt lint
+rt lint --max-parents 4
+rt lint --json
+```
+
+Audits graph hygiene, including:
+
+- oversized parent fan-in
+- invalid `primary_parent`
+- orphaned or duplicate typed relations
+- isolated nodes
+- active invalidation branch warnings
 
 ### `rt status`
 

@@ -196,6 +196,25 @@ type RunRecord struct {
 	InvalidReason string       `json:"invalid_reason,omitempty" yaml:"invalid_reason,omitempty"`
 }
 
+// RelationType classifies a typed cross-edge between research nodes.
+type RelationType string
+
+const (
+	RelDependsOn       RelationType = "depends_on"
+	RelComparesAgainst RelationType = "compares_against"
+	RelInspiredBy      RelationType = "inspired_by"
+	RelAggregates      RelationType = "aggregates"
+)
+
+// Relation is a typed, informational cross-edge between nodes.
+// Unlike Parents, relations do NOT participate in DAG cycle enforcement —
+// they are purely descriptive (comparison, inspiration, aggregation).
+type Relation struct {
+	Type   RelationType `json:"type" yaml:"type"`
+	Target NodeID       `json:"target" yaml:"target"`
+	Note   string       `json:"note,omitempty" yaml:"note,omitempty"`
+}
+
 // Frontmatter holds the structured metadata of a research node.
 type Frontmatter struct {
 	SchemaVersion   SchemaVersion  `json:"schema_version" yaml:"schema_version"`
@@ -217,6 +236,8 @@ type Frontmatter struct {
 	MilestoneClass  MilestoneClass `json:"milestone_class,omitempty" yaml:"milestone_class,omitempty"`
 	MilestoneKind   MilestoneKind  `json:"milestone_kind,omitempty" yaml:"milestone_kind,omitempty"`
 	MilestoneReason string         `json:"milestone_reason,omitempty" yaml:"milestone_reason,omitempty"`
+	Relations       []Relation     `json:"relations,omitempty" yaml:"relations,omitempty"`
+	PrimaryParent   *NodeID        `json:"primary_parent,omitempty" yaml:"primary_parent,omitempty"`
 }
 
 // Node is a unit of research: an idea, experiment, or decision point.
