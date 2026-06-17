@@ -487,8 +487,14 @@ func retree_get_status(handle uintptr, agentFilter *C.char) *C.char {
 	if agent != "" {
 		af.Agent = agent
 	}
-	all, _ := s.QueryNodes(af)
-	warnings, _ := s.ListBranchWarnings(agent, true)
+	all, err := s.QueryNodes(af)
+	if err != nil {
+		return jsonError(err)
+	}
+	warnings, err := s.ListBranchWarnings(agent, true)
+	if err != nil {
+		return jsonError(err)
+	}
 	if warnings == nil {
 		warnings = []retree.BranchWarning{}
 	}
