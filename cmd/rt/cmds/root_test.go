@@ -912,6 +912,7 @@ func TestCLINodeListAdvancedFiltersAndAtomicParentEdits(t *testing.T) {
 	}
 }
 
+// TestCLINodePoisonAndRevalidate verifies that a node can be poisoned and later revalidated.
 func TestCLINodePoisonAndRevalidate(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	_, _ = runCLI(t, "--research-root", root, "init")
@@ -947,6 +948,7 @@ func TestCLINodePoisonAndRevalidate(t *testing.T) {
 	}
 }
 
+// TestTreePrimaryParentAvoidsCycleCutForMultiParentReference verifies that primary parent avoids cycle-cut in tree view for multi-parent nodes.
 func TestTreePrimaryParentAvoidsCycleCutForMultiParentReference(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	_, _ = runCLI(t, "--research-root", root, "init")
@@ -963,6 +965,7 @@ func TestTreePrimaryParentAvoidsCycleCutForMultiParentReference(t *testing.T) {
 	}
 }
 
+// TestDoctorLineageFlagsStructuralMultiparentAndPoisonedAncestors verifies doctor lineage flags surface structural multi-parent and poisoned ancestor issues.
 func TestDoctorLineageFlagsStructuralMultiparentAndPoisonedAncestors(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	_, _ = runCLI(t, "--research-root", root, "init")
@@ -987,6 +990,7 @@ func TestDoctorLineageFlagsStructuralMultiparentAndPoisonedAncestors(t *testing.
 	}
 }
 
+// TestDoctorEvidenceFlagsPoisonChainsAndDoctrineUsage verifies doctor evidence flags expose poison chains and doctrine usage.
 func TestDoctorEvidenceFlagsPoisonChainsAndDoctrineUsage(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	_, _ = runCLI(t, "--research-root", root, "init")
@@ -1010,6 +1014,7 @@ func TestDoctorEvidenceFlagsPoisonChainsAndDoctrineUsage(t *testing.T) {
 	}
 }
 
+// TestNodeCreateAndEditWarnOnMultiParentWithoutPrimaryParent verifies create and edit warn when a node has multiple parents but no primary parent.
 func TestNodeCreateAndEditWarnOnMultiParentWithoutPrimaryParent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	_, _ = runCLI(t, "--research-root", root, "init")
@@ -1033,6 +1038,7 @@ func TestNodeCreateAndEditWarnOnMultiParentWithoutPrimaryParent(t *testing.T) {
 	}
 }
 
+// TestTreeShowRelationsRendersNonStructuralHints verifies --show-relations renders typed relation hints without changing DAG shape.
 func TestTreeShowRelationsRendersNonStructuralHints(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	_, _ = runCLI(t, "--research-root", root, "init")

@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newNodePoisonCmd constructs the "node poison" subcommand for marking evidence as untrustworthy.
 func newNodePoisonCmd(opts *RootOptions) *cobra.Command {
 	var by, cause, scope, reason string
 	cmd := &cobra.Command{
@@ -58,6 +59,7 @@ func newNodePoisonCmd(opts *RootOptions) *cobra.Command {
 	return cmd
 }
 
+// newNodeRevalidateCmd constructs the "node revalidate" subcommand for clearing evidence suspicion.
 func newNodeRevalidateCmd(opts *RootOptions) *cobra.Command {
 	var by string
 	cmd := &cobra.Command{

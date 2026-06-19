@@ -16,6 +16,7 @@ type doctorIssue struct {
 	Message  string        `json:"message"`
 }
 
+// newDoctorCmd constructs the "doctor" subcommand for higher-level structural diagnostics.
 func newDoctorCmd(opts *RootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
@@ -26,6 +27,7 @@ func newDoctorCmd(opts *RootOptions) *cobra.Command {
 	return cmd
 }
 
+// newDoctorLineageCmd constructs the "doctor lineage" subcommand for structural parent hygiene.
 func newDoctorLineageCmd(opts *RootOptions) *cobra.Command {
 	var strict bool
 	cmd := &cobra.Command{
@@ -143,6 +145,7 @@ This command is stricter than lint. It focuses on research hygiene:
 	return cmd
 }
 
+// newDoctorEvidenceCmd constructs the "doctor evidence" subcommand for poisoned/revalidated evidence hygiene.
 func newDoctorEvidenceCmd(opts *RootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "evidence",
