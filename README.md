@@ -163,6 +163,7 @@ rt status                            # dashboard: active, done, paused, claims, 
 rt status --matrix                   # status × outcome matrix
 rt tree                              # visualize the DAG
 rt tree --depth 2                    # limit depth
+rt tree --show-relations             # show relation hints without changing DAG shape
 rt tree --color always | grep '★'    # inspect golden milestones in the graph
 rt feed --by modified --hours 24     # recent activity
 rt golden --verbose                  # list frontier/champion nodes

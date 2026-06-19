@@ -365,9 +365,13 @@ rt tree
 rt tree 14
 rt tree --depth 2
 rt tree --status active
+rt tree --show-relations
 rt tree --flat
 rt tree --json
 ```
+
+`--show-relations` adds inline hints for non-structural typed relations in
+expanded tree mode, without turning them into DAG edges.
 
 ### `rt links`
 

@@ -1033,6 +1033,22 @@ func TestNodeCreateAndEditWarnOnMultiParentWithoutPrimaryParent(t *testing.T) {
 	}
 }
 
+func TestTreeShowRelationsRendersNonStructuralHints(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "root")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "baseline")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "candidate", "--parents", "1", "--relation", "compares_against:2")
+
+	out, err := runCLI(t, "--research-root", root, "tree", "--show-relations")
+	if err != nil {
+		t.Fatalf("tree --show-relations failed: %v", err)
+	}
+	if !strings.Contains(out, "↬ compares_against:0002") {
+		t.Fatalf("expected relation hint in tree output: %q", out)
+	}
+}
+
 // TestCLINewViews verifies mermaid/changes/timeline commands produce output.
 func TestCLINewViews(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")

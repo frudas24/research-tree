@@ -13,7 +13,7 @@ import (
 func newTreeCmd(opts *RootOptions) *cobra.Command {
 	var depth int
 	var status, claimStatus, evidenceStatus, evidenceCause string
-	var flat, activeOnly bool
+	var flat, activeOnly, showRelations bool
 	cmd := &cobra.Command{
 		Use:   "tree [id]",
 		Short: "Render tree view",
@@ -147,6 +147,17 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 					lines = append(lines, strings.TrimSpace(line))
 				} else {
 					lines = append(lines, prefix+strings.TrimSpace(line))
+					if showRelations && len(n.Relations) > 0 {
+						relParts := make([]string, 0, len(n.Relations))
+						for _, rel := range n.Relations {
+							piece := fmt.Sprintf("%s:%04d", rel.Type, rel.Target)
+							if rel.Note != "" {
+								piece += fmt.Sprintf("(%s)", rel.Note)
+							}
+							relParts = append(relParts, piece)
+						}
+						lines = append(lines, prefix+"  ↬ "+strings.Join(relParts, ", "))
+					}
 				}
 				if depth > 0 && d >= depth {
 					return
@@ -179,6 +190,7 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 	cmd.Flags().StringVar(&evidenceCause, "evidence-cause", "", "Filter by evidence cause")
 	cmd.Flags().BoolVar(&flat, "flat", false, "Flat output")
 	cmd.Flags().BoolVar(&activeOnly, "active-only", false, "Only show branches with active nodes")
+	cmd.Flags().BoolVar(&showRelations, "show-relations", false, "Show non-structural relation hints inline in expanded tree mode")
 	return cmd
 }
 
