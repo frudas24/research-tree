@@ -987,6 +987,29 @@ func TestDoctorLineageFlagsStructuralMultiparentAndPoisonedAncestors(t *testing.
 	}
 }
 
+func TestDoctorEvidenceFlagsPoisonChainsAndDoctrineUsage(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "poison-source")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "active-child", "--parents", "1")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "doctrine report", "--parents", "2", "--tags", "report")
+	_, _ = runCLI(t, "--research-root", root, "node", "poison", "1", "--cause", "base_snapshot", "--reason", "bad base")
+
+	out, err := runCLI(t, "--research-root", root, "doctor", "evidence")
+	if err != nil {
+		t.Fatalf("doctor evidence failed: %v", err)
+	}
+	for _, needle := range []string{
+		"poisoned evidence has no clean revalidated_by replacement yet",
+		"active node depends structurally on poisoned ancestor(s)",
+		"doctrine/report node is built on poisoned ancestor(s)",
+	} {
+		if !strings.Contains(out, needle) {
+			t.Fatalf("doctor evidence output missing %q: %q", needle, out)
+		}
+	}
+}
+
 // TestCLINewViews verifies mermaid/changes/timeline commands produce output.
 func TestCLINewViews(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")

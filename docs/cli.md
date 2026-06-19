@@ -119,6 +119,19 @@ This is the stricter architectural audit for lineage hygiene. It flags:
 - poisoned nodes still acting as structural ancestors
 - revalidated nodes that still remain structural hubs
 
+### `rt doctor evidence`
+
+```bash
+rt doctor evidence
+```
+
+This focuses on evidence hygiene rather than graph shape. It flags:
+
+- poisoned nodes without clean reruns
+- active nodes depending on poisoned ancestors
+- doctrine/report nodes built on poisoned ancestors
+- revalidated bookkeeping inconsistencies
+
 ### `rt node close`
 
 Strict helper for terminal closure.
