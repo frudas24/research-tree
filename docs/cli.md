@@ -105,6 +105,20 @@ rt node revalidate 36 --by 394
 
 Use these when the experiment happened but should not be treated as clean doctrine.
 
+### `rt doctor lineage`
+
+```bash
+rt doctor lineage
+rt doctor lineage --strict
+```
+
+This is the stricter architectural audit for lineage hygiene. It flags:
+
+- nodes with multiple structural parents but no `primary_parent`
+- nodes mixing multiple parents with matrix-style `relations`
+- poisoned nodes still acting as structural ancestors
+- revalidated nodes that still remain structural hubs
+
 ### `rt node close`
 
 Strict helper for terminal closure.

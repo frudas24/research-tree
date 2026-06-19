@@ -55,6 +55,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newGoldenCmd(opts))
 	cmd.AddCommand(newLinksCmd(opts))
 	cmd.AddCommand(newLintCmd(opts))
+	cmd.AddCommand(newDoctorCmd(opts))
 	return cmd
 }
 

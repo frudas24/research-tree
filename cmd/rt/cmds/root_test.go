@@ -963,6 +963,30 @@ func TestTreePrimaryParentAvoidsCycleCutForMultiParentReference(t *testing.T) {
 	}
 }
 
+func TestDoctorLineageFlagsStructuralMultiparentAndPoisonedAncestors(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "root-a")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "root-b")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "shared", "--parents", "1,2", "--relation", "compares_against:1")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "child", "--parents", "3")
+	_, _ = runCLI(t, "--research-root", root, "node", "poison", "3", "--cause", "base_snapshot", "--reason", "corrupt base")
+
+	out, err := runCLI(t, "--research-root", root, "doctor", "lineage")
+	if err != nil {
+		t.Fatalf("doctor lineage failed: %v", err)
+	}
+	for _, needle := range []string{
+		"has 2 structural parents but no primary_parent",
+		"mixes multiple structural parents with matrix-style relations",
+		"poisoned node still acts as structural ancestor",
+	} {
+		if !strings.Contains(out, needle) {
+			t.Fatalf("doctor lineage output missing %q: %q", needle, out)
+		}
+	}
+}
+
 // TestCLINewViews verifies mermaid/changes/timeline commands produce output.
 func TestCLINewViews(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
