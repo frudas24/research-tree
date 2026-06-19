@@ -93,6 +93,7 @@ rt node edit 4 --evidence-status suspect --evidence-cause prompt_surface
 - `--continued-by` and `--superseded-by` add semantic continuity links distinct from DAG parents.
 - `--relation` replaces the relation set; `--add-relation` / `--rm-relation` mutate it atomically.
 - `--evidence-status` / `--evidence-cause` model evidence hygiene separately from truth/failure.
+- if a node ends up with multiple structural parents and no `primary_parent`, CLI emits a warning and `rt doctor lineage` will flag it.
 - Parent resolution accepts IDs or unique title substrings.
 - Cycle creation is rejected.
 

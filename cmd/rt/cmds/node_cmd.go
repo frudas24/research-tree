@@ -111,7 +111,11 @@ is taken from --body or --body-file if provided.`,
 			if err := store.CreateNode(n); err != nil {
 				return err
 			}
-			return printMaybeJSON(cmd, opts.OutputJSON, n, fmt.Sprintf("created node %04d", n.ID))
+			msg := fmt.Sprintf("created node %04d", n.ID)
+			if w := lineageWarning(n); w != "" && !opts.OutputJSON {
+				msg += "\nwarning: " + w
+			}
+			return printMaybeJSON(cmd, opts.OutputJSON, n, msg)
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "Node title (required)")
@@ -490,7 +494,11 @@ text at the end instead of replacing.`,
 			if err := store.UpdateNode(n); err != nil {
 				return err
 			}
-			return printMaybeJSON(cmd, opts.OutputJSON, n, fmt.Sprintf("updated node %04d", n.ID))
+			msg := fmt.Sprintf("updated node %04d", n.ID)
+			if w := lineageWarning(n); w != "" && !opts.OutputJSON {
+				msg += "\nwarning: " + w
+			}
+			return printMaybeJSON(cmd, opts.OutputJSON, n, msg)
 		},
 	}
 	cmd.Flags().StringVar(&status, "status", "", "New status")

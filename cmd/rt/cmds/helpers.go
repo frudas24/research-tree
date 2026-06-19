@@ -476,6 +476,17 @@ func evidenceBadge(n *retree.Node) string {
 	}
 }
 
+// lineageWarning returns a human warning for structurally ambiguous lineage.
+func lineageWarning(n *retree.Node) string {
+	if n == nil {
+		return ""
+	}
+	if len(n.Parents) > 1 && n.PrimaryParent == nil {
+		return "multiple structural parents without primary_parent; prefer one structural parent and move matrix context to relations"
+	}
+	return ""
+}
+
 // titleWithVerdict returns a display title enriched with the visible verdict badge.
 func titleWithVerdict(n *retree.Node) string {
 	parts := make([]string, 0, 4)

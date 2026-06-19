@@ -1010,6 +1010,29 @@ func TestDoctorEvidenceFlagsPoisonChainsAndDoctrineUsage(t *testing.T) {
 	}
 }
 
+func TestNodeCreateAndEditWarnOnMultiParentWithoutPrimaryParent(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "p1")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "p2")
+	out, err := runCLI(t, "--research-root", root, "node", "create", "--title", "child", "--parents", "1,2")
+	if err != nil {
+		t.Fatalf("node create failed: %v", err)
+	}
+	if !strings.Contains(out, "warning: multiple structural parents without primary_parent") {
+		t.Fatalf("expected create warning, got %q", out)
+	}
+
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "solo", "--parents", "1")
+	out, err = runCLI(t, "--research-root", root, "node", "edit", "4", "--add-parents", "2")
+	if err != nil {
+		t.Fatalf("node edit failed: %v", err)
+	}
+	if !strings.Contains(out, "warning: multiple structural parents without primary_parent") {
+		t.Fatalf("expected edit warning, got %q", out)
+	}
+}
+
 // TestCLINewViews verifies mermaid/changes/timeline commands produce output.
 func TestCLINewViews(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
