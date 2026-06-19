@@ -62,6 +62,40 @@ var (
 		0: ArtifactPath,
 		1: ArtifactEmbedded,
 	}
+	evidenceStatusToBin = map[EvidenceStatus]uint8{
+		"":                  0,
+		EvidenceClean:       1,
+		EvidenceSuspect:     2,
+		EvidencePoisoned:    3,
+		EvidenceRevalidated: 4,
+	}
+	binToEvidenceStatus = map[uint8]EvidenceStatus{
+		0: "",
+		1: EvidenceClean,
+		2: EvidenceSuspect,
+		3: EvidencePoisoned,
+		4: EvidenceRevalidated,
+	}
+	evidenceCauseToBin = map[EvidenceCause]uint8{
+		EvidenceCauseNone:          0,
+		EvidenceCauseBaseSnapshot:  1,
+		EvidenceCauseToolchain:     2,
+		EvidenceCauseExporter:      3,
+		EvidenceCauseDataset:       4,
+		EvidenceCausePromptSurface: 5,
+		EvidenceCauseRuntimeEnv:    6,
+		EvidenceCauseUnknown:       7,
+	}
+	binToEvidenceCause = map[uint8]EvidenceCause{
+		0: EvidenceCauseNone,
+		1: EvidenceCauseBaseSnapshot,
+		2: EvidenceCauseToolchain,
+		3: EvidenceCauseExporter,
+		4: EvidenceCauseDataset,
+		5: EvidenceCausePromptSurface,
+		6: EvidenceCauseRuntimeEnv,
+		7: EvidenceCauseUnknown,
+	}
 )
 
 // milestoneClassToBin encodes a MilestoneClass to its binary representation.
@@ -266,6 +300,20 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 	} else {
 		binWriteU8(&buf, 0)
 	}
+	es, ok := evidenceStatusToBin[n.EvidenceStatus]
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown evidence status %q", ErrInvalidNode, n.EvidenceStatus)
+	}
+	ec, ok := evidenceCauseToBin[n.EvidenceCause]
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown evidence cause %q", ErrInvalidNode, n.EvidenceCause)
+	}
+	binWriteU8(&buf, es)
+	binWriteU8(&buf, ec)
+	binWriteString32(&buf, n.EvidenceScope)
+	binWriteU64Slice(&buf, n.PoisonedBy)
+	binWriteU64Slice(&buf, n.RevalidatedBy)
+	binWriteString32(&buf, n.PoisonReason)
 
 	return buf.Bytes(), nil
 }
@@ -652,6 +700,47 @@ func UnmarshalNodeBinary(b []byte) (*Node, error) {
 		pp := NodeID(ppVal)
 		n.PrimaryParent = &pp
 	}
+	if pos == len(b) {
+		return n, nil
+	}
+	esByte, err := binReadU8(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	es, ok := binToEvidenceStatus[esByte]
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown evidence status byte %d", ErrInvalidNode, esByte)
+	}
+	n.EvidenceStatus = es
+	ecByte, err := binReadU8(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	ec, ok := binToEvidenceCause[ecByte]
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown evidence cause byte %d", ErrInvalidNode, ecByte)
+	}
+	n.EvidenceCause = ec
+	evidenceScope, err := binReadString32(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	n.EvidenceScope = evidenceScope
+	poisonedBy, err := binReadU64Slice(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	n.PoisonedBy = poisonedBy
+	revalidatedBy, err := binReadU64Slice(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	n.RevalidatedBy = revalidatedBy
+	poisonReason, err := binReadString32(b, &pos)
+	if err != nil {
+		return nil, err
+	}
+	n.PoisonReason = poisonReason
 
 	// Strict: reject trailing bytes
 	if pos != len(b) {

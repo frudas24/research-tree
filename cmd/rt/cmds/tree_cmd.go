@@ -12,7 +12,7 @@ import (
 // newTreeCmd constructs the "tree" subcommand.
 func newTreeCmd(opts *RootOptions) *cobra.Command {
 	var depth int
-	var status, claimStatus string
+	var status, claimStatus, evidenceStatus, evidenceCause string
 	var flat, activeOnly bool
 	cmd := &cobra.Command{
 		Use:   "tree [id]",
@@ -24,7 +24,12 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 				return err
 			}
 			cc := newColorizer(opts.ColorMode)
-			nodes, err := store.QueryNodes(retree.Filter{Status: parseNodeStatus(status), ClaimStatus: parseClaimStatus(claimStatus)})
+			nodes, err := store.QueryNodes(retree.Filter{
+				Status:         parseNodeStatus(status),
+				ClaimStatus:    parseClaimStatus(claimStatus),
+				EvidenceStatus: parseEvidenceStatus(evidenceStatus),
+				EvidenceCause:  parseEvidenceCause(evidenceCause),
+			})
 			if err != nil {
 				return err
 			}
@@ -34,7 +39,11 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 			}
 			children := map[retree.NodeID][]retree.NodeID{}
 			for _, n := range nodes {
-				for _, p := range n.Parents {
+				structuralParents := n.Parents
+				if n.PrimaryParent != nil {
+					structuralParents = []retree.NodeID{*n.PrimaryParent}
+				}
+				for _, p := range structuralParents {
 					if _, ok := nodesByID[p]; ok {
 						children[p] = append(children[p], n.ID)
 					}
@@ -54,7 +63,11 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 			} else {
 				for _, n := range nodes {
 					isRoot := true
-					for _, p := range n.Parents {
+					structuralParents := n.Parents
+					if n.PrimaryParent != nil {
+						structuralParents = []retree.NodeID{*n.PrimaryParent}
+					}
+					for _, p := range structuralParents {
 						if _, ok := nodesByID[p]; ok {
 							isRoot = false
 							break
@@ -105,24 +118,31 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 			}
 
 			lines := make([]string, 0)
-			visited := map[retree.NodeID]bool{}
+			rendered := map[retree.NodeID]bool{}
+			onPath := map[retree.NodeID]bool{}
 			var walk func(id retree.NodeID, prefix string, d int)
 			walk = func(id retree.NodeID, prefix string, d int) {
 				n, ok := nodesByID[id]
 				if !ok {
 					return
 				}
-				if visited[id] {
+				if onPath[id] {
 					lines = append(lines, prefix+fmt.Sprintf("%04d ...cycle-cut...", id))
+					return
+				}
+				if rendered[id] {
+					lines = append(lines, prefix+fmt.Sprintf("%04d ...ref-cut...", id))
 					return
 				}
 				// Skip branch if --active-only and no active descendants
 				if activeOnly && !hasActive[id] {
 					return
 				}
-				visited[id] = true
+				onPath[id] = true
+				rendered[id] = true
 				title := cc.golden(n.MilestoneClass, titleWithVerdict(n))
-				line := fmt.Sprintf("%04d | %s | %s | [%s] %s", n.ID, cc.status(n.Status, statusIcon(n.Status)), cc.outcomeColor(n.Outcome, outcomeIcon(n)), n.Agent, title)
+				evidence := evidenceIcon(n)
+				line := fmt.Sprintf("%04d | %s | %s | %s | [%s] %s", n.ID, cc.status(n.Status, statusIcon(n.Status)), cc.outcomeColor(n.Outcome, outcomeIcon(n)), evidence, n.Agent, title)
 				if flat {
 					lines = append(lines, strings.TrimSpace(line))
 				} else {
@@ -141,6 +161,7 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 					}
 					walk(c, np, d+1)
 				}
+				delete(onPath, id)
 			}
 			for _, r := range roots {
 				if activeOnly && !hasActive[r] {
@@ -154,6 +175,8 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 	cmd.Flags().IntVar(&depth, "depth", 0, "Max depth (0 = unlimited)")
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status")
 	cmd.Flags().StringVar(&claimStatus, "claim-status", "", "Filter by claim status")
+	cmd.Flags().StringVar(&evidenceStatus, "evidence-status", "", "Filter by evidence status")
+	cmd.Flags().StringVar(&evidenceCause, "evidence-cause", "", "Filter by evidence cause")
 	cmd.Flags().BoolVar(&flat, "flat", false, "Flat output")
 	cmd.Flags().BoolVar(&activeOnly, "active-only", false, "Only show branches with active nodes")
 	return cmd
@@ -180,6 +203,20 @@ func outcomeIcon(n *retree.Node) string {
 		return "✗"
 	case retree.OutcomeInconclusive:
 		return "⏸"
+	default:
+		return "·"
+	}
+}
+
+// evidenceIcon returns the evidence hygiene icon for compact tree output.
+func evidenceIcon(n *retree.Node) string {
+	switch n.EvidenceStatus {
+	case retree.EvidencePoisoned:
+		return "☣"
+	case retree.EvidenceRevalidated:
+		return "♻"
+	case retree.EvidenceSuspect:
+		return "?"
 	default:
 		return "·"
 	}

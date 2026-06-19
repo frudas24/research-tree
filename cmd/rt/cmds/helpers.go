@@ -459,10 +459,30 @@ func goldenBadge(n *retree.Node) string {
 	return ""
 }
 
+// evidenceBadge returns a compact prefix for evidence quality state.
+func evidenceBadge(n *retree.Node) string {
+	if n == nil {
+		return ""
+	}
+	switch n.EvidenceStatus {
+	case retree.EvidencePoisoned:
+		return "☣"
+	case retree.EvidenceRevalidated:
+		return "♻"
+	case retree.EvidenceSuspect:
+		return "?"
+	default:
+		return ""
+	}
+}
+
 // titleWithVerdict returns a display title enriched with the visible verdict badge.
 func titleWithVerdict(n *retree.Node) string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
 	if badge := goldenBadge(n); badge != "" {
+		parts = append(parts, badge)
+	}
+	if badge := evidenceBadge(n); badge != "" {
 		parts = append(parts, badge)
 	}
 	parts = append(parts, n.Title)
@@ -505,6 +525,16 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 	}
 	b.WriteString(fmt.Sprintf("%04d %s\n", n.ID, title))
 	b.WriteString(fmt.Sprintf("  status: %s  claim: %s  agent: %s\n", n.Status, n.ClaimStatus, n.Agent))
+	if n.EvidenceStatus != "" && n.EvidenceStatus != retree.EvidenceClean {
+		line := fmt.Sprintf("  evidence: %s", n.EvidenceStatus)
+		if n.EvidenceCause != "" {
+			line += fmt.Sprintf(" / %s", n.EvidenceCause)
+		}
+		if n.EvidenceScope != "" {
+			line += fmt.Sprintf(" — %s", n.EvidenceScope)
+		}
+		b.WriteString(line + "\n")
+	}
 	if n.MilestoneClass == retree.MilestoneGolden {
 		line := "  milestone: golden"
 		if n.MilestoneKind != "" {
@@ -610,6 +640,16 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 	if n.InvalidationReason != "" {
 		b.WriteString(fmt.Sprintf("  invalidated by: %v — %s\n", n.InvalidatedBy, n.InvalidationReason))
 	}
+	if len(n.PoisonedBy) > 0 || n.PoisonReason != "" {
+		b.WriteString(fmt.Sprintf("  poisoned by: %v", n.PoisonedBy))
+		if n.PoisonReason != "" {
+			b.WriteString(fmt.Sprintf(" — %s", n.PoisonReason))
+		}
+		b.WriteString("\n")
+	}
+	if len(n.RevalidatedBy) > 0 {
+		b.WriteString(fmt.Sprintf("  revalidated by: %v\n", n.RevalidatedBy))
+	}
 	if latestRun, ok := latestRunMeta(n); ok {
 		b.WriteString("  latest run:\n")
 		if latestRun.Timestamp != "" {
@@ -673,6 +713,13 @@ func formatNodeAgentView(cc *colorizer, n *retree.Node, children []retree.NodeID
 	}
 	b.WriteString(fmt.Sprintf("%04d %s\n", n.ID, title))
 	b.WriteString(fmt.Sprintf("  status: %s  outcome: %s  claim: %s\n", n.Status, n.Outcome, n.ClaimStatus))
+	if n.EvidenceStatus != "" && n.EvidenceStatus != retree.EvidenceClean {
+		line := fmt.Sprintf("  evidence: %s", n.EvidenceStatus)
+		if n.EvidenceCause != "" {
+			line += fmt.Sprintf(" / %s", n.EvidenceCause)
+		}
+		b.WriteString(line + "\n")
+	}
 	if n.MilestoneClass == retree.MilestoneGolden {
 		line := "  milestone: golden"
 		if n.MilestoneKind != "" {
@@ -806,6 +853,16 @@ func parseNodeStatus(s string) retree.NodeStatus { return retree.NodeStatus(stri
 // parseClaimStatus converts a string to ClaimStatus.
 func parseClaimStatus(s string) retree.ClaimStatus {
 	return retree.ClaimStatus(strings.TrimSpace(s))
+}
+
+// parseEvidenceStatus converts a string to EvidenceStatus.
+func parseEvidenceStatus(s string) retree.EvidenceStatus {
+	return retree.EvidenceStatus(strings.TrimSpace(s))
+}
+
+// parseEvidenceCause converts a string to EvidenceCause.
+func parseEvidenceCause(s string) retree.EvidenceCause {
+	return retree.EvidenceCause(strings.TrimSpace(s))
 }
 
 // colorizer applies ANSI colors when enabled.

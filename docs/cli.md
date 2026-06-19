@@ -41,6 +41,7 @@ rt node create --title "Run note" --body-file ./notes.md
 rt node create --title "Done node" --status done --outcome success
 rt node create --title "Candidate" --parents 1,2 --primary-parent 1
 rt node create --title "Candidate" --relation compares_against:2
+rt node create --title "Contaminated run" --evidence-status poisoned --evidence-cause base_snapshot --evidence-scope "qwen@remoto32d raw prompts"
 ```
 
 - `--parents` accepts numeric IDs or unique title substrings.
@@ -84,14 +85,25 @@ rt node edit 4 --append-body "New note"
 rt node edit 4 --relation compares_against:9
 rt node edit 4 --add-relation inspired_by:7
 rt node edit 4 --rm-relation inspired_by:7
+rt node edit 4 --evidence-status suspect --evidence-cause prompt_surface
 ```
 
 - `--parents` replaces the full parent set.
 - `--add-parents` and `--rm-parents` perform atomic parent edits.
 - `--continued-by` and `--superseded-by` add semantic continuity links distinct from DAG parents.
 - `--relation` replaces the relation set; `--add-relation` / `--rm-relation` mutate it atomically.
+- `--evidence-status` / `--evidence-cause` model evidence hygiene separately from truth/failure.
 - Parent resolution accepts IDs or unique title substrings.
 - Cycle creation is rejected.
+
+### `rt node poison` / `rt node revalidate`
+
+```bash
+rt node poison 36 --cause base_snapshot --scope "qwen@remoto32d" --reason "base snapshot corrupted" --by 394
+rt node revalidate 36 --by 394
+```
+
+Use these when the experiment happened but should not be treated as clean doctrine.
 
 ### `rt node close`
 
@@ -160,6 +172,8 @@ rt node delete 7 --force
 rt node list
 rt node list --status active --agent researcher
 rt node list --claim-status invalidated
+rt node list --evidence-status poisoned
+rt node list --evidence-cause base_snapshot
 rt node list --outcome failure
 rt node list --tag kd
 rt node list --tags-all a,c

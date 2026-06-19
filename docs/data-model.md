@@ -13,6 +13,9 @@ work, an experiment, a design decision, or a pivot.
 | `id` | NodeID (uint64) | Auto | Sequential ID assigned on creation |
 | `status` | NodeStatus | Default: `active` | Lifecycle status |
 | `claim_status` | ClaimStatus | Default: `provisional` | Epistemic confidence |
+| `evidence_status` | EvidenceStatus | Default: `clean` | Reliability of the observed evidence |
+| `evidence_cause` | EvidenceCause | No | Dominant contamination cause if evidence is not clean |
+| `evidence_scope` | string | No | Scope boundary of contamination (`host/model/surface/...`) |
 | `scope` | string | No | Explicit scope of the claim or result |
 | `exit_criteria` | string | No | Explicit criterion for closing the node |
 | `parents` | []NodeID | No | Parent node IDs (DAG edges) |
@@ -27,6 +30,9 @@ work, an experiment, a design decision, or a pivot.
 | `artifacts` | []Artifact | No | Produced artifacts |
 | `invalidated_by` | []NodeID | No | Nodes that refute this claim |
 | `invalidation_reason` | string | No | Reason for invalidation |
+| `poisoned_by` | []NodeID | No | Nodes/events that explain the contamination |
+| `revalidated_by` | []NodeID | No | Clean reruns that supersede contaminated evidence |
+| `poison_reason` | string | No | Mandatory narrative reason when `evidence_status=poisoned` |
 | `milestone_class` | string | No | Class of structural milestone (`golden`) |
 | `milestone_kind` | string | No | Optional subtype (`champion`, `breakthrough`, `pivot`) |
 | `milestone_reason` | string | No | Brief mandatory reason for golden milestones |
@@ -54,6 +60,24 @@ Combined: `done`+`success` = finished well. `done`+`failure` = dead end.
 ### Claim status
 
 ```
+
+### Evidence status
+
+```
+clean ─────────► suspect ───────► poisoned ───────► revalidated
+```
+
+This dimension is intentionally separate from claim truth:
+
+- `claim_status=invalidated` means the **idea/result** was refuted.
+- `evidence_status=poisoned` means the **measurement substrate** was unreliable.
+
+Typical poison causes:
+
+- corrupted base snapshot
+- broken exporter/toolchain
+- bad prompt surface used as judge
+- runtime environment mismatch
 provisional ──► validated
      └───────► invalidated (requires invalidated_by)
      └───────► superseded
@@ -77,6 +101,8 @@ provisional ──► validated
 - `artifacts[].path` is mandatory
 - `milestone_class=golden` requires non-empty `milestone_reason`
 - `milestone_kind` can only be used when `milestone_class` is present
+- `evidence_status=poisoned` requires non-empty `poison_reason`
+- `evidence_status=revalidated` requires non-empty `revalidated_by`
 
 ### Golden milestones
 
@@ -124,6 +150,8 @@ rt golden
   "title": "KD sparse top-k k=128 vs k=64",
   "status": "done",
   "claim_status": "validated",
+  "evidence_status": "revalidated",
+  "revalidated_by": [39],
   "scope": "mistral-q4km ctx=2048 greedy",
   "exit_criteria": "close after 3 seeds under stable variance",
   "parents": [14, 16],

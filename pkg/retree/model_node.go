@@ -29,6 +29,25 @@ var validClaimStatuses = []ClaimStatus{
 	ClaimSuperseded,
 }
 
+var validEvidenceStatuses = []EvidenceStatus{
+	"",
+	EvidenceClean,
+	EvidenceSuspect,
+	EvidencePoisoned,
+	EvidenceRevalidated,
+}
+
+var validEvidenceCauses = []EvidenceCause{
+	EvidenceCauseNone,
+	EvidenceCauseBaseSnapshot,
+	EvidenceCauseToolchain,
+	EvidenceCauseExporter,
+	EvidenceCauseDataset,
+	EvidenceCausePromptSurface,
+	EvidenceCauseRuntimeEnv,
+	EvidenceCauseUnknown,
+}
+
 var validMilestoneClasses = []MilestoneClass{
 	MilestoneNone,
 	MilestoneGolden,
@@ -69,6 +88,9 @@ func ApplyNodeDefaults(n *Node, now time.Time) {
 	if n.ClaimStatus == "" {
 		n.ClaimStatus = ClaimProvisional
 	}
+	if n.EvidenceStatus == "" {
+		n.EvidenceStatus = EvidenceClean
+	}
 	if n.Outcome == "" {
 		n.Outcome = OutcomeUnset
 	}
@@ -103,6 +125,12 @@ func ValidateNode(n *Node) error {
 	if !slices.Contains(validClaimStatuses, n.ClaimStatus) {
 		return fmt.Errorf("%w: %q", ErrInvalidClaimStatus, n.ClaimStatus)
 	}
+	if !slices.Contains(validEvidenceStatuses, n.EvidenceStatus) {
+		return fmt.Errorf("%w: evidence_status=%q", ErrInvalidNode, n.EvidenceStatus)
+	}
+	if !slices.Contains(validEvidenceCauses, n.EvidenceCause) {
+		return fmt.Errorf("%w: evidence_cause=%q", ErrInvalidNode, n.EvidenceCause)
+	}
 	if !slices.Contains(validMilestoneClasses, n.MilestoneClass) {
 		return fmt.Errorf("%w: milestone_class=%q", ErrInvalidNode, n.MilestoneClass)
 	}
@@ -120,6 +148,17 @@ func ValidateNode(n *Node) error {
 	if n.ClaimStatus == ClaimInvalidated && len(n.InvalidatedBy) == 0 {
 		return fmt.Errorf("%w: invalidated requires invalidated_by", ErrInvalidNode)
 	}
+	if n.EvidenceStatus == EvidencePoisoned {
+		if strings.TrimSpace(n.PoisonReason) == "" {
+			return fmt.Errorf("%w: poisoned evidence requires poison_reason", ErrInvalidNode)
+		}
+		if len(n.PoisonedBy) == 0 && n.EvidenceCause == EvidenceCauseNone {
+			return fmt.Errorf("%w: poisoned evidence requires poisoned_by or evidence_cause", ErrInvalidNode)
+		}
+	}
+	if n.EvidenceStatus == EvidenceRevalidated && len(n.RevalidatedBy) == 0 {
+		return fmt.Errorf("%w: revalidated evidence requires revalidated_by", ErrInvalidNode)
+	}
 	for _, pid := range n.Parents {
 		if pid == 0 {
 			return fmt.Errorf("%w: parent id cannot be 0", ErrInvalidNode)
@@ -133,6 +172,16 @@ func ValidateNode(n *Node) error {
 	for _, id := range n.SupersededBy {
 		if id == 0 {
 			return fmt.Errorf("%w: superseded_by id cannot be 0", ErrInvalidNode)
+		}
+	}
+	for _, id := range n.PoisonedBy {
+		if id == 0 {
+			return fmt.Errorf("%w: poisoned_by id cannot be 0", ErrInvalidNode)
+		}
+	}
+	for _, id := range n.RevalidatedBy {
+		if id == 0 {
+			return fmt.Errorf("%w: revalidated_by id cannot be 0", ErrInvalidNode)
 		}
 	}
 	for _, a := range n.Artifacts {

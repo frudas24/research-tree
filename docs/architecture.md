@@ -14,6 +14,8 @@
 6. **Strict DAG.** No write operation may introduce cycles.
 7. **Impact alerts.** If an ancestor is invalidated, agents with active descendant
    branches receive explicit warning.
+8. **One structural parent preferred.** Use `parents` + `primary_parent` for tree shape;
+   use `relations` for comparison/aggregation matrix links.
 
 ## Project structure
 
@@ -72,6 +74,31 @@ CLI (cmd/rt) ──► Store (pkg/retree) ──► Graph (in-memory) ──► 
                  Snapshots              Edge validation
                  Alerts                 Invariant checks
 ```
+
+## Structural parent discipline
+
+Research often wants more than one lineage reference, but multiple structural
+parents create ambiguous tree rendering and duplicate traversals. The improved
+rule is:
+
+- keep **one primary structural parent** for the DAG/tree view
+- keep extra lineage/context as:
+  - additional `parents` only when truly structural
+  - preferably `relations` (`compares_against`, `aggregates`, `inspired_by`, ...)
+
+In tree rendering, `primary_parent` is preferred for structural traversal. This
+keeps the tree readable while preserving matrix-style cross-links separately.
+
+## Evidence hygiene
+
+RT now models evidence quality separately from outcome/claim:
+
+- `evidence_status=poisoned` means the experiment happened but should not be
+  used as clean doctrine
+- `evidence_status=revalidated` means a later clean rerun exists
+
+This avoids silently rewriting history while still marking contaminated lines as
+operationally unsafe.
 
 ## Storage layout
 

@@ -883,12 +883,12 @@ func TestCLINodeListAdvancedFiltersAndAtomicParentEdits(t *testing.T) {
 	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "beta", "--tags", "c", "--status", "done", "--outcome", "failure")
 
 	out, err := runCLI(t, "--research-root", root, "node", "list", "--tags-all", "a,c", "--has-artifact", "true", "--sort-by", "title")
-	if err != nil || !strings.Contains(out, "0002 | done | provisional | alpha") {
+	if err != nil || !strings.Contains(out, "0002 | done | provisional | clean | alpha") {
 		t.Fatalf("advanced list output=%q err=%v", out, err)
 	}
 
 	out, err = runCLI(t, "--research-root", root, "node", "list", "--sort-by", "title", "--offset", "1", "--limit", "1")
-	if err != nil || !strings.Contains(out, "0003 | done | provisional | beta") {
+	if err != nil || !strings.Contains(out, "0003 | done | provisional | clean | beta") {
 		t.Fatalf("offset list output=%q err=%v", out, err)
 	}
 
@@ -909,6 +909,57 @@ func TestCLINodeListAdvancedFiltersAndAtomicParentEdits(t *testing.T) {
 	out, _ = runCLI(t, "--research-root", root, "node", "show", "5")
 	if !strings.Contains(out, "parents:  0002") || strings.Contains(out, "0004") {
 		t.Fatalf("expected parent removed: %q", out)
+	}
+}
+
+func TestCLINodePoisonAndRevalidate(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "contaminated")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "clean rerun")
+
+	if _, err := runCLI(t, "--research-root", root, "node", "poison", "1",
+		"--cause", "base_snapshot",
+		"--scope", "qwen@host",
+		"--reason", "base corrupted",
+		"--by", "2"); err != nil {
+		t.Fatalf("node poison failed: %v", err)
+	}
+	out, err := runCLI(t, "--research-root", root, "node", "show", "1")
+	if err != nil {
+		t.Fatalf("node show after poison failed: %v", err)
+	}
+	for _, want := range []string{"evidence: poisoned / base_snapshot", "poisoned by: [2] — base corrupted"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output: %q", want, out)
+		}
+	}
+
+	if _, err := runCLI(t, "--research-root", root, "node", "revalidate", "1", "--by", "2"); err != nil {
+		t.Fatalf("node revalidate failed: %v", err)
+	}
+	out, err = runCLI(t, "--research-root", root, "node", "show", "1")
+	if err != nil {
+		t.Fatalf("node show after revalidate failed: %v", err)
+	}
+	if !strings.Contains(out, "revalidated by: [2]") {
+		t.Fatalf("expected revalidated_by in output: %q", out)
+	}
+}
+
+func TestTreePrimaryParentAvoidsCycleCutForMultiParentReference(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "root-a")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "root-b")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "shared", "--parents", "1,2", "--primary-parent", "1")
+
+	out, err := runCLI(t, "--research-root", root, "tree")
+	if err != nil {
+		t.Fatalf("tree failed: %v", err)
+	}
+	if strings.Contains(out, "...cycle-cut...") {
+		t.Fatalf("unexpected cycle-cut for primary-parent traversal: %q", out)
 	}
 }
 

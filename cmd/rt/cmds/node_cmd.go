@@ -21,6 +21,8 @@ func newNodeCmd(opts *RootOptions) *cobra.Command {
 	cmd.AddCommand(newNodeDeleteCmd(opts))
 	cmd.AddCommand(newNodeListCmd(opts))
 	cmd.AddCommand(newNodeInvalidateCmd(opts))
+	cmd.AddCommand(newNodePoisonCmd(opts))
+	cmd.AddCommand(newNodeRevalidateCmd(opts))
 	cmd.AddCommand(newNodeHistoryCmd(opts))
 	cmd.AddCommand(newNodeDiffCmd(opts))
 	cmd.AddCommand(newNodeAncestorsCmd(opts))
@@ -32,7 +34,7 @@ func newNodeCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeCreateCmd constructs the "node create" subcommand.
 func newNodeCreateCmd(opts *RootOptions) *cobra.Command {
-	var title, status, claimStatus, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, parentsCSV, continuedByCSV, supersededByCSV, agent, tagsCSV, bodyInline, bodyFile, relationsCSV, primaryParentStr string
+	var title, status, claimStatus, evidenceStatus, evidenceCause, evidenceScope, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, parentsCSV, continuedByCSV, supersededByCSV, agent, tagsCSV, bodyInline, bodyFile, relationsCSV, primaryParentStr string
 	var outcome string
 	var useEditor bool
 	cmd := &cobra.Command{
@@ -84,6 +86,9 @@ is taken from --body or --body-file if provided.`,
 					Title:           title,
 					Status:          parseNodeStatus(status),
 					ClaimStatus:     parseClaimStatus(claimStatus),
+					EvidenceStatus:  parseEvidenceStatus(evidenceStatus),
+					EvidenceCause:   parseEvidenceCause(evidenceCause),
+					EvidenceScope:   strings.TrimSpace(evidenceScope),
 					MilestoneClass:  retree.MilestoneClass(strings.TrimSpace(milestoneClass)),
 					MilestoneKind:   retree.MilestoneKind(strings.TrimSpace(milestoneKind)),
 					MilestoneReason: strings.TrimSpace(milestoneReason),
@@ -112,6 +117,9 @@ is taken from --body or --body-file if provided.`,
 	cmd.Flags().StringVar(&title, "title", "", "Node title (required)")
 	cmd.Flags().StringVar(&status, "status", "active", "Node status")
 	cmd.Flags().StringVar(&claimStatus, "claim-status", "provisional", "Claim status")
+	cmd.Flags().StringVar(&evidenceStatus, "evidence-status", "clean", "Evidence status")
+	cmd.Flags().StringVar(&evidenceCause, "evidence-cause", "", "Evidence contamination cause")
+	cmd.Flags().StringVar(&evidenceScope, "evidence-scope", "", "Scope of evidence contamination")
 	cmd.Flags().StringVar(&milestoneClass, "milestone-class", "", "Milestone class (e.g. golden)")
 	cmd.Flags().StringVar(&milestoneKind, "milestone-kind", "", "Milestone kind (champion|breakthrough|pivot)")
 	cmd.Flags().StringVar(&milestoneReason, "milestone-reason", "", "Required reason for golden milestones")
@@ -167,6 +175,9 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 						"status":           n.Status,
 						"outcome":          n.Outcome,
 						"claim_status":     n.ClaimStatus,
+						"evidence_status":  n.EvidenceStatus,
+						"evidence_cause":   n.EvidenceCause,
+						"evidence_scope":   n.EvidenceScope,
 						"scope":            n.Scope,
 						"exit_criteria":    n.ExitCriteria,
 						"milestone_class":  n.MilestoneClass,
@@ -179,6 +190,9 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 						"superseded_by":    n.SupersededBy,
 						"children":         children,
 						"artifacts":        n.Artifacts,
+						"poisoned_by":      n.PoisonedBy,
+						"revalidated_by":   n.RevalidatedBy,
+						"poison_reason":    n.PoisonReason,
 						"commits":          n.Commits,
 						"runs":             n.Runs,
 						"active_resources": leases,
@@ -212,6 +226,9 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 					"status":           n.Status,
 					"outcome":          n.Outcome,
 					"claim_status":     n.ClaimStatus,
+					"evidence_status":  n.EvidenceStatus,
+					"evidence_cause":   n.EvidenceCause,
+					"evidence_scope":   n.EvidenceScope,
 					"scope":            n.Scope,
 					"exit_criteria":    n.ExitCriteria,
 					"milestone_class":  n.MilestoneClass,
@@ -239,6 +256,9 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 					"title":               n.Title,
 					"status":              n.Status,
 					"claim_status":        n.ClaimStatus,
+					"evidence_status":     n.EvidenceStatus,
+					"evidence_cause":      n.EvidenceCause,
+					"evidence_scope":      n.EvidenceScope,
 					"parents":             n.Parents,
 					"continued_by":        n.ContinuedBy,
 					"superseded_by":       n.SupersededBy,
@@ -258,6 +278,9 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 					"artifacts":           n.Artifacts,
 					"invalidated_by":      n.InvalidatedBy,
 					"invalidation_reason": n.InvalidationReason,
+					"poisoned_by":         n.PoisonedBy,
+					"revalidated_by":      n.RevalidatedBy,
+					"poison_reason":       n.PoisonReason,
 					"body":                n.Body,
 					"active_resources":    leases,
 				}, "")
@@ -272,7 +295,7 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeEditCmd constructs the "node edit" subcommand.
 func newNodeEditCmd(opts *RootOptions) *cobra.Command {
-	var status, claimStatus, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, addTags, rmTags, parentsCSV, addParentsCSV, rmParentsCSV, continuedByCSV, supersededByCSV, bodyInline, bodyFile, appendBody, relationsCSV, addRelationsCSV, rmRelationsCSV, primaryParentStr string
+	var status, claimStatus, evidenceStatus, evidenceCause, evidenceScope, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, addTags, rmTags, parentsCSV, addParentsCSV, rmParentsCSV, continuedByCSV, supersededByCSV, bodyInline, bodyFile, appendBody, relationsCSV, addRelationsCSV, rmRelationsCSV, primaryParentStr string
 	var outcome string
 	var useEditor bool
 	cmd := &cobra.Command{
@@ -334,6 +357,15 @@ text at the end instead of replacing.`,
 			}
 			if strings.TrimSpace(claimStatus) != "" {
 				n.ClaimStatus = parseClaimStatus(claimStatus)
+			}
+			if cmd.Flags().Changed("evidence-status") {
+				n.EvidenceStatus = parseEvidenceStatus(evidenceStatus)
+			}
+			if cmd.Flags().Changed("evidence-cause") {
+				n.EvidenceCause = parseEvidenceCause(evidenceCause)
+			}
+			if cmd.Flags().Changed("evidence-scope") {
+				n.EvidenceScope = strings.TrimSpace(evidenceScope)
 			}
 			if cmd.Flags().Changed("milestone-class") {
 				n.MilestoneClass = retree.MilestoneClass(strings.TrimSpace(milestoneClass))
@@ -463,6 +495,9 @@ text at the end instead of replacing.`,
 	}
 	cmd.Flags().StringVar(&status, "status", "", "New status")
 	cmd.Flags().StringVar(&claimStatus, "claim-status", "", "New claim status")
+	cmd.Flags().StringVar(&evidenceStatus, "evidence-status", "", "Set evidence status")
+	cmd.Flags().StringVar(&evidenceCause, "evidence-cause", "", "Set evidence cause")
+	cmd.Flags().StringVar(&evidenceScope, "evidence-scope", "", "Set evidence scope")
 	cmd.Flags().StringVar(&milestoneClass, "milestone-class", "", "Set milestone class (empty clears)")
 	cmd.Flags().StringVar(&milestoneKind, "milestone-kind", "", "Set milestone kind (empty clears)")
 	cmd.Flags().StringVar(&milestoneReason, "milestone-reason", "", "Set milestone reason (empty clears)")
@@ -515,7 +550,7 @@ func newNodeDeleteCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeListCmd constructs the "node list" subcommand.
 func newNodeListCmd(opts *RootOptions) *cobra.Command {
-	var status, claimStatus, outcome, milestoneClass, milestoneKind, tag, tagsAllCSV, tagsAnyCSV, agent, titleContains, scopeContains, bodyContains, sortBy, order, hasArtifact, continuedByRef, supersededByRef string
+	var status, claimStatus, evidenceStatus, evidenceCause, outcome, milestoneClass, milestoneKind, tag, tagsAllCSV, tagsAnyCSV, agent, titleContains, scopeContains, bodyContains, sortBy, order, hasArtifact, continuedByRef, supersededByRef string
 	var limit, offset int
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -551,6 +586,8 @@ func newNodeListCmd(opts *RootOptions) *cobra.Command {
 			ids, err := store.ListNodes(retree.Filter{
 				Status:         parseNodeStatus(status),
 				ClaimStatus:    parseClaimStatus(claimStatus),
+				EvidenceStatus: parseEvidenceStatus(evidenceStatus),
+				EvidenceCause:  parseEvidenceCause(evidenceCause),
 				Outcome:        parseOutcome(outcome),
 				MilestoneClass: retree.MilestoneClass(strings.TrimSpace(milestoneClass)),
 				MilestoneKind:  retree.MilestoneKind(strings.TrimSpace(milestoneKind)),
@@ -582,13 +619,19 @@ func newNodeListCmd(opts *RootOptions) *cobra.Command {
 					continue
 				}
 				title := cc.golden(n.MilestoneClass, titleWithVerdict(n))
-				lines = append(lines, fmt.Sprintf("%04d | %s | %s | %s | %s", n.ID, n.Status, n.ClaimStatus, title, n.Agent))
+				ev := n.EvidenceStatus
+				if ev == "" {
+					ev = retree.EvidenceClean
+				}
+				lines = append(lines, fmt.Sprintf("%04d | %s | %s | %s | %s | %s", n.ID, n.Status, n.ClaimStatus, ev, title, n.Agent))
 			}
 			return printMaybeJSON(cmd, false, nil, strings.Join(lines, "\n"))
 		},
 	}
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status")
 	cmd.Flags().StringVar(&claimStatus, "claim-status", "", "Filter by claim status")
+	cmd.Flags().StringVar(&evidenceStatus, "evidence-status", "", "Filter by evidence status")
+	cmd.Flags().StringVar(&evidenceCause, "evidence-cause", "", "Filter by evidence cause")
 	cmd.Flags().StringVar(&outcome, "outcome", "", "Filter by outcome")
 	cmd.Flags().StringVar(&milestoneClass, "milestone-class", "", "Filter by milestone class")
 	cmd.Flags().StringVar(&milestoneKind, "milestone-kind", "", "Filter by milestone kind")

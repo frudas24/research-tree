@@ -42,6 +42,12 @@ func matchesFilter(n *Node, f Filter) bool {
 	if f.ClaimStatus != "" && n.ClaimStatus != f.ClaimStatus {
 		return false
 	}
+	if f.EvidenceStatus != "" && n.EvidenceStatus != f.EvidenceStatus {
+		return false
+	}
+	if f.EvidenceCause != "" && n.EvidenceCause != f.EvidenceCause {
+		return false
+	}
 	if f.Outcome != "" && n.Outcome != f.Outcome {
 		return false
 	}

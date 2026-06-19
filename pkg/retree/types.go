@@ -52,6 +52,31 @@ const (
 	ClaimSuperseded  ClaimStatus = "superseded"
 )
 
+// EvidenceStatus captures whether a node's observed evidence is trustworthy.
+// This is intentionally separate from outcome and claim status.
+type EvidenceStatus string
+
+const (
+	EvidenceClean       EvidenceStatus = "clean"
+	EvidenceSuspect     EvidenceStatus = "suspect"
+	EvidencePoisoned    EvidenceStatus = "poisoned"
+	EvidenceRevalidated EvidenceStatus = "revalidated"
+)
+
+// EvidenceCause identifies the dominant reason evidence became unreliable.
+type EvidenceCause string
+
+const (
+	EvidenceCauseNone          EvidenceCause = ""
+	EvidenceCauseBaseSnapshot  EvidenceCause = "base_snapshot"
+	EvidenceCauseToolchain     EvidenceCause = "toolchain"
+	EvidenceCauseExporter      EvidenceCause = "exporter"
+	EvidenceCauseDataset       EvidenceCause = "dataset"
+	EvidenceCausePromptSurface EvidenceCause = "prompt_surface"
+	EvidenceCauseRuntimeEnv    EvidenceCause = "runtime_env"
+	EvidenceCauseUnknown       EvidenceCause = "unknown"
+)
+
 // MilestoneClass marks frontier-significant nodes without conflating them with status/outcome.
 type MilestoneClass string
 
@@ -222,6 +247,9 @@ type Frontmatter struct {
 	Title           string         `json:"title" yaml:"title"`
 	Status          NodeStatus     `json:"status" yaml:"status"`
 	ClaimStatus     ClaimStatus    `json:"claim_status,omitempty" yaml:"claim_status,omitempty"`
+	EvidenceStatus  EvidenceStatus `json:"evidence_status,omitempty" yaml:"evidence_status,omitempty"`
+	EvidenceCause   EvidenceCause  `json:"evidence_cause,omitempty" yaml:"evidence_cause,omitempty"`
+	EvidenceScope   string         `json:"evidence_scope,omitempty" yaml:"evidence_scope,omitempty"`
 	Scope           string         `json:"scope,omitempty" yaml:"scope,omitempty"`
 	ExitCriteria    string         `json:"exit_criteria,omitempty" yaml:"exit_criteria,omitempty"`
 	Parents         []NodeID       `json:"parents,omitempty" yaml:"parents,omitempty"`
@@ -248,6 +276,9 @@ type Node struct {
 	Artifacts          []Artifact  `json:"artifacts,omitempty" yaml:"artifacts,omitempty"`
 	InvalidatedBy      []NodeID    `json:"invalidated_by,omitempty" yaml:"invalidated_by,omitempty"`
 	InvalidationReason string      `json:"invalidation_reason,omitempty" yaml:"invalidation_reason,omitempty"`
+	PoisonedBy         []NodeID    `json:"poisoned_by,omitempty" yaml:"poisoned_by,omitempty"`
+	RevalidatedBy      []NodeID    `json:"revalidated_by,omitempty" yaml:"revalidated_by,omitempty"`
+	PoisonReason       string      `json:"poison_reason,omitempty" yaml:"poison_reason,omitempty"`
 	Body               string      `json:"body,omitempty" yaml:"-"`
 }
 
@@ -255,6 +286,8 @@ type Node struct {
 type Filter struct {
 	Status         NodeStatus     `json:"status,omitempty"`
 	ClaimStatus    ClaimStatus    `json:"claim_status,omitempty"`
+	EvidenceStatus EvidenceStatus `json:"evidence_status,omitempty"`
+	EvidenceCause  EvidenceCause  `json:"evidence_cause,omitempty"`
 	Outcome        Outcome        `json:"outcome,omitempty"`
 	Tag            string         `json:"tag,omitempty"`
 	TagsAll        []string       `json:"tags_all,omitempty"`
