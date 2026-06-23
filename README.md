@@ -103,10 +103,15 @@ Every step is a node. Every connection is explicit. Nothing is lost.
 | **Artifact** | A file or dataset attached to a node (linked or embedded) |
 | **Supersede** | A claim replaced by a better one — preserves both, with a traceable edge |
 | **Continue** | A long investigation split across nodes — keeps the thread alive |
+| **Relation** | A typed cross-edge: `compares_against`, `inspired_by`, `depends_on`, `aggregates` |
+| **Primary parent** | Designated canonical parent when a node has multiple DAG parents |
+| **Poison** | Flag a node's evidence as untrustworthy — propagates downstream via `rt doctor` |
+| **Revalidate** | Restore trust in previously poisoned evidence |
 
 A node with `continued_by=[7]` says "this work isn't done, node 7 picks it
 up." A claim with `superseded_by=[12]` says "this conclusion was valid at the
-time, but node 12 has a better one." No information is destroyed.
+time, but node 12 has a better one." A node with `--relation compares_against:5`
+links to a baseline without polluting the parent lineage. No information is destroyed.
 
 ---
 
@@ -130,6 +135,12 @@ time, but node 12 has a better one." No information is destroyed.
   database, no server, no daemon. Back up with `rsync`.
 - **Agent-ready.** Both a Go ABI (`pkg/retree`) and a structured CLI for
   external tooling. Designed to be embedded.
+- **Typed relations.** Beyond parent-child: `compares_against`, `inspired_by`,
+  `depends_on`, and `aggregates` keep the DAG clean without abusing `--parents`.
+- **Evidence hygiene.** Mark nodes as `poisoned` when evidence becomes unreliable,
+  `revalidate` when trust is restored. `rt doctor evidence` traces contamination.
+- **Structural diagnostics.** `rt lint` audits hygiene; `rt doctor lineage`
+  surfaces multi-parent patterns, poisoned ancestors, and missing primary parents.
 
 ---
 
@@ -175,10 +186,12 @@ rt changes --since 72                # nodes changed in last 72h
 # Nodes
 rt node create --title "..." --parents 1,2 --tags a,b,c
 rt node create --title "..." --milestone-class golden --milestone-kind breakthrough --milestone-reason "..."
+rt node create --title "..." --parents 1,2 --primary-parent 1 --relation compares_against:3
 rt node show 42
 rt node show 42 --agent --json         # compact handoff for other agents
 rt node edit 42 --title "better title" --add-tags urgent
 rt node edit 42 --milestone-class golden --milestone-kind champion --milestone-reason "best lineage artifact"
+rt node edit 42 --add-relation inspired_by:7
 rt node edit 42 --append-body "new findings"
 rt node close 42 --outcome success
 rt node close 42 --outcome failure
@@ -186,6 +199,8 @@ rt node delete 42 --force
 rt node diff 42 --rev-a 3
 rt node ancestors 42
 rt node descendants 42
+rt node poison 42 --by agent --cause base_snapshot --reason "checkpoint MIA"
+rt node revalidate 42 --by agent
 
 # Experiments
 rt resource claim 42 gpu-node-0 --by codex
@@ -206,6 +221,13 @@ rt node list --milestone-class golden
 rt node list --milestone-class golden --milestone-kind champion --sort-by modified --order desc
 rt node list --body-contains "perplexity"
 rt node list --created-after 2026-06-01T00:00:00Z --sort-by created
+
+# Relations & hygiene
+rt links                              # flat DAG edge view (parents + relations)
+rt links --type compares_against      # filter by relation type
+rt lint                               # audit: parent fan-in, orphans, isolates
+rt doctor lineage                     # structural parent issues, poisoned ancestors
+rt doctor evidence                    # trace evidence contamination
 ```
 
 ### Golden milestones
@@ -225,6 +247,28 @@ Golden milestones are **orthogonal** to `status`, `outcome`, and `claim_status`.
 A node is not golden merely because it is `done`, `success`, or `validated`.
 Use golden metadata when the node breaks a ceiling, becomes the lineage champion,
 or materially shifts the bottleneck/roadmap.
+
+### Evidence hygiene
+
+When evidence becomes unreliable (corrupted checkpoint, bad dataset, broken
+toolchain), you can mark nodes as poisoned instead of deleting them:
+
+```bash
+# Mark a node's evidence as untrustworthy
+rt node poison 42 --by agent --cause base_snapshot --reason "checkpoint mismatch"
+
+# Trace contamination downstream
+rt doctor evidence
+rt doctor lineage --poisoned
+
+# Restore trust when the issue is resolved
+rt node revalidate 42 --by agent
+```
+
+- **Evidence states:** `clean` → `suspect` → `poisoned` → `revalidated`
+- **Contamination tracking:** `rt doctor evidence` traces poison through the DAG
+- **Never delete evidence.** Poison preserves the record while flagging the risk.
+  Deleting a node would orphan its children; poison keeps the graph intact.
 
 ---
 
