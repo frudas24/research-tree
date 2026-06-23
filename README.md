@@ -48,6 +48,8 @@ structure of your thinking, not the order you typed it in.
 > research. When backtracking to a three-week-old experiment took longer than
 > running it again, the tool became necessary.
 
+![Research Tree CLI screenshot](assets/RT.png)
+
 ---
 
 ## Five minutes to your first graph
@@ -254,6 +256,29 @@ rt feed --hours 24 --json
 ```
 
 Parse the JSON from any language. No library needed.
+
+### 3. Tell your agent to use Research Tree
+
+Add this to your agent's project instructions (`AGENT.md`, `.cursorrules`, or system prompt):
+
+```markdown
+## Research tracking
+
+Use the `rt` CLI to maintain a research DAG in `.research/`. Every
+non-trivial investigation gets a node:
+
+- Hypothesis or claim → `rt node create --title "..."`
+- Experiment run → `rt node logrun <id> --cmd "..." --seed 7`
+- Evidence or conclusion → `rt node close <id> --outcome success`
+- Cross-reference → `--relation compares_against:<other-id>`
+
+Before starting new work, check `rt status` and `rt feed --hours 72`.
+When an assumption is invalidated, mark it and check `rt lint` for
+affected descendants.
+```
+
+Your agent will track branches, experiments, and evidence — without you
+having to remember what happened three weeks ago.
 
 ---
 
