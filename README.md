@@ -2,7 +2,7 @@
 
 **Research is a graph. Your logbook shouldn't be a flat file.**
 
-Research Tree maps scientific and engineering work as a directed acyclic graph
+Research Tree maps engineering research as a directed acyclic graph
 (DAG). Every node is a unit of research — an idea, a claim, an experiment, a
 decision — connected by epistemic edges (parent, continuation, supersession).
 
@@ -17,15 +17,18 @@ with a structured, queryable, and auditable knowledge graph.
 
 ## Project status
 
-Research Tree is **released as-is**.
+Research Tree is a personal tool, **released as-is** under MIT. Fork or vendor
+if you need a stable dependency. Bug reports and patches reviewed
+opportunistically. See `SUPPORT.md` for the full maintenance policy.
 
-- It is used in real technical research workflows.
-- The CLI and ABI are intended to be integrated by both humans and agents.
-- There is **no support or maintenance commitment**.
-- Bug reports and patches may be reviewed opportunistically.
-
-If you need a stable local dependency, vendor it or fork it.
-See `SUPPORT.md` for the maintenance policy.
+```
+0001 Hypothesis: sparse KD can recover recall
+├─ 0002 Run: k=64 baseline [failure]
+├─ 0003 Run: k=128 improved [success] ★ champion
+│  └─ 0012 Poisoned: bad checkpoint ☣
+└─ 0011 Revalidated: clean rerun ♻
+0020 Inspired by 0001 — compares_against
+```
 
 ---
 
@@ -146,13 +149,17 @@ links to a baseline without polluting the parent lineage. No information is dest
 
 ## Install
 
-From source:
+```bash
+go install github.com/frudas24/research-tree/cmd/rt@latest
+```
+
+Binary lands in `$GOPATH/bin/rt`. Add it to your PATH.
+
+Or build from a clone:
 
 ```bash
 go install ./cmd/rt
 ```
-
-Binary lands in `$GOPATH/bin/rt`. Add it to your PATH.
 
 To build locally:
 
@@ -338,6 +345,17 @@ having to remember what happened three weeks ago.
   states. If a concept doesn't earn its place in the graph, it doesn't go in.
 - **Portable by design.** `.research/` is a directory. Move it, back it up,
   version it. No migrations, no servers, no lock-in.
+
+---
+
+## What this is not
+
+Research Tree is **not** a task manager, project tracker, note app, or wiki.
+It does not replace Notion, Obsidian, Jira, Linear, or Logseq.
+
+It is **provenance infrastructure for engineering research**: experiments,
+claims, failed branches, reruns, artifacts, evidence hygiene, and decisions
+where "what did we know at the time?" matters.
 
 ---
 
