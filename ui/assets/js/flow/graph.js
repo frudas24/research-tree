@@ -196,12 +196,7 @@ export async function bootCy(container) {
     sorted.forEach(n => {
       const li = document.createElement('li');
       li.className = 'node-item';
-      li.onclick = () => {
-        const cyNode = cy.getElementById(String(n.id));
-        if (cyNode && !cyNode.empty()) {
-          cy.animate({ center: { eles: cyNode }, duration: 300 });
-        }
-      };
+      li.onclick = () => navigateToNode(n.id);
       const name = document.createElement('span');
       name.className = 'name';
       name.textContent = `[${String(n.id).padStart(4, '0')}] ${n.title || ''}`;
@@ -216,7 +211,7 @@ export async function bootCy(container) {
 
   // ── Node detail panel (independent of hotspot sidebar) ──
   async function showNodeDetail(node) {
-    const id = node.id();
+    const id = typeof node === 'object' ? node.id() : String(node);
     const panel = document.getElementById('nodeDetail');
     const content = document.getElementById('nodeDetailContent');
     if (!panel || !content) return;
@@ -233,6 +228,35 @@ export async function bootCy(container) {
       content.innerHTML = `<div style="color:var(--bad)">Error: ${e.message}</div>`;
     }
   }
+
+  // Global: navigate to a node (center graph + show detail)
+  // Exposed on window so inline onclick in detail panel can call it.
+  async function navigateToNode(id) {
+    const n = cy.getElementById(String(id));
+    if (n && !n.empty()) {
+      cy.animate({ center: { eles: n }, duration: 300 });
+    } else {
+      // Node is filtered out — reset filters so it becomes visible
+      const filterEl = document.getElementById('txtFilter');
+      if (filterEl) filterEl.value = '';
+      const selStatus = document.getElementById('selStatus');
+      if (selStatus) selStatus.value = 'all';
+      const selClaim = document.getElementById('selClaim');
+      if (selClaim) selClaim.value = 'all';
+      state.filterText = '';
+      state.filterStatus = 'all';
+      state.filterClaim = 'all';
+      forceLayout = true;
+      await refresh();
+      // Retry centering after reload
+      const n2 = cy.getElementById(String(id));
+      if (n2 && !n2.empty()) {
+        cy.animate({ center: { eles: n2 }, duration: 300 });
+      }
+    }
+    await showNodeDetail(id);
+  }
+  window.__navToNode = navigateToNode;
 
   function hideNodeDetail() {
     const panel = document.getElementById('nodeDetail');
@@ -274,12 +298,12 @@ export async function bootCy(container) {
       const pp = d.primary_parent;
       html += `<div>Parents: ${d.parents.map(p => {
         const star = pp === p ? ' \u2605' : '';
-        return `<span class="pill pill-ok" style="cursor:pointer" onclick="event.stopPropagation();document.getElementById('${p}')?.emit('tap')">${String(p).padStart(4,'0')}${star}</span>`;
+        return `<span class="pill pill-ok" style="cursor:pointer" onclick="event.stopPropagation();window.__navToNode(${p})">${String(p).padStart(4,'0')}${star}</span>`;
       }).join(' ')}</div>`;
     }
     if (d.children && d.children.length) {
       html += `<div>Children: ${d.children.map(c =>
-        `<span class="pill pill-warn" style="cursor:pointer" onclick="event.stopPropagation();document.getElementById('${c}')?.emit('tap')">${String(c).padStart(4,'0')}</span>`
+        `<span class="pill pill-warn" style="cursor:pointer" onclick="event.stopPropagation();window.__navToNode(${c})">${String(c).padStart(4,'0')}</span>`
       ).join(' ')}</div>`;
     }
     if (d.continued_by && d.continued_by.length) html += `<div>Continued by: ${d.continued_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
