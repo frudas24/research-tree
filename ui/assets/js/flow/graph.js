@@ -85,6 +85,7 @@ export async function bootCy(container) {
 
   let firstLayoutDone = false;
   let lastLayoutAt = 0;
+  let forceLayout = false;
   const LAYOUT_MIN_MS = 3000;
 
   async function refresh() {
@@ -104,28 +105,24 @@ export async function bootCy(container) {
       const pan = cy.pan();
 
       cy.startBatch();
-      // keepHistory=false so stale filtered-out nodes are removed
       const changed = applyDiff(cy, els, false);
       cy.endBatch();
 
       const now = Date.now();
       const hasNodes = cy.nodes().length > 0;
+      const doLayout = forceLayout || (changed && (now - lastLayoutAt) >= LAYOUT_MIN_MS);
+      forceLayout = false;
 
       if (hasNodes && !firstLayoutDone) {
         firstLayoutDone = true;
         lastLayoutAt = now;
         const layout = lay();
-        layout.one('layoutstop', () => {
-          try { cy.fit(cy.elements(), 50); } catch {}
-        });
+        layout.one('layoutstop', () => { try { cy.fit(cy.elements(), 50); } catch {} });
         layout.run();
-      } else if (changed && (now - lastLayoutAt) >= LAYOUT_MIN_MS) {
+      } else if (doLayout) {
         lastLayoutAt = now;
         const layout = lay();
-        layout.one('layoutstop', () => {
-          cy.zoom(zoom);
-          cy.pan(pan);
-        });
+        layout.one('layoutstop', () => { cy.zoom(zoom); cy.pan(pan); });
         layout.run();
       } else {
         cy.zoom(zoom);
@@ -394,6 +391,7 @@ export async function bootCy(container) {
     if (txtFilter) {
       txtFilter.addEventListener('input', () => {
         state.filterText = txtFilter.value;
+        forceLayout = true;
         refresh();
       });
     }
@@ -401,6 +399,7 @@ export async function bootCy(container) {
     if (selStatus) {
       selStatus.addEventListener('change', () => {
         state.filterStatus = selStatus.value;
+        forceLayout = true;
         refresh();
       });
     }
@@ -408,6 +407,7 @@ export async function bootCy(container) {
     if (selClaim) {
       selClaim.addEventListener('change', () => {
         state.filterClaim = selClaim.value;
+        forceLayout = true;
         refresh();
       });
     }
