@@ -10,15 +10,19 @@
   #sidebar { transition: transform 0.25s ease; }
   #sidebar.collapsed { transform: translateX(100%); }
   #nodeDetail {
-    position: absolute; right: 10px; top: 50px; width: 320px; max-height: 75vh;
-    background: var(--card); border: 1px solid var(--muted); border-radius: 10px;
-    padding: 10px; font-size: 11px; line-height: 1.5; overflow-y: auto; z-index: 15;
-    display: none; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    position: absolute; right: 10px; top: 50px; width: 340px; max-height: 78vh;
+    background: rgba(17,22,29,0.97); border: 1px solid var(--muted); border-radius: 12px;
+    padding: 14px 14px 14px 14px; font-size: 11px; line-height: 1.55;
+    overflow-y: auto; overflow-x: hidden; z-index: 15;
+    display: none; box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    backdrop-filter: blur(6px);
   }
   #nodeDetail .close-btn {
-    position: absolute; right: 6px; top: 6px;
-    background: transparent; border: none; color: var(--fg); cursor: pointer; font-size: 14px;
+    position: sticky; float: right; top: 0; margin: -8px -8px 0 0;
+    background: var(--card); border: 1px solid var(--muted); border-radius: 6px;
+    color: var(--fg); cursor: pointer; font-size: 14px; padding: 2px 8px; z-index: 2;
   }
+  #nodeDetail .close-btn:hover { background: #1a2332; }
 </style>
 </head>
 <body>

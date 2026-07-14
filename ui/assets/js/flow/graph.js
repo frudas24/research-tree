@@ -311,7 +311,7 @@ export async function bootCy(container) {
     if (d.modified) html += `<div style="color:var(--muted)">Modified: ${fmtDate(d.modified)}</div>`;
 
     if (d.body) {
-      html += `<div style="margin-top:6px; padding:6px; background:#0a0f14; border-radius:6px; white-space:pre-wrap; max-height:200px; overflow-y:auto; font-size:11px; color:#9ca3af">${esc(d.body)}</div>`;
+      html += `<div style="margin-top:6px; padding:6px; background:#0a0f14; border-radius:6px; white-space:pre-wrap; font-size:11px; color:#9ca3af">${esc(d.body)}</div>`;
     }
 
     html += '</div>';
