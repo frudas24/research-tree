@@ -13,6 +13,7 @@ endif
 # --- Binary ---
 BIN_DIR := ./build
 BIN     := $(BIN_DIR)/rt$(BIN_EXT)
+GRAPH   := $(BIN_DIR)/research-graph$(BIN_EXT)
 LIBSO   := $(BIN_DIR)/libretree.so
 DLL_AMD := $(BIN_DIR)/libretree-amd64.dll
 DLL_ARM := $(BIN_DIR)/libretree-arm64.dll
@@ -44,6 +45,11 @@ $(BIN): $(GO_SOURCES) go.mod go.sum
 	@mkdir -p $(BIN_DIR)
 	@$(GO) build -gcflags 'all=-e' -ldflags '-X github.com/frudas24/research-tree/cmd/rt/cmds.Version=$(VERSION)' -o $@ ./cmd/rt
 	@echo "  binary: $@"
+
+$(GRAPH): $(GO_SOURCES) go.mod go.sum
+	@mkdir -p $(BIN_DIR)
+	@$(GO) build -o $@ ./cmd/research-graph
+	@echo "  graph server: $@"
 
 # --- Shared library Linux (C ABI bridge for FFI) ---
 libretree.so: $(LIBSO)
