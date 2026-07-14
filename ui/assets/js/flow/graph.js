@@ -261,25 +261,145 @@ export async function bootCy(container) {
     });
   }
 
-  function showNodeDetail(node) {
-    const d = node.data();
+  async function showNodeDetail(node) {
+    const id = node.id();
     const panel = document.getElementById('nodeDetail');
     if (!panel) return;
-    panel.innerHTML = `
-      <strong>${d.label}</strong>
-      <div style="font-size:11px; margin-top:4px; line-height:1.5">
-        <div>Status: <span class="pill ${d.status === 'done' ? 'pill-ok' : d.status === 'active' ? 'pill-warn' : ''}">${d.status}</span></div>
-        <div>Claim: ${d.claim_status}</div>
-        <div>Evidence: ${d.evidence_status}</div>
-        <div>Outcome: ${d.outcome}</div>
-        <div>Children: ${d.children} (${d.pending_children} pending)</div>
-        <div>Hotness: ${d.hotness}</div>
-        ${d.milestone_class ? `<div>Milestone: ${d.milestone_class}/${d.milestone_kind}</div>` : ''}
-        ${d.agent ? `<div>Agent: ${d.agent}</div>` : ''}
-        ${d.tags ? `<div>Tags: ${d.tags}</div>` : ''}
-      </div>
-    `;
+
+    // Expand sidebar if collapsed
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar && sidebar.classList.contains('collapsed')) {
+      sidebar.classList.remove('collapsed');
+      const btn = document.getElementById('btnSidebar');
+      if (btn) btn.textContent = '\u25B6';
+    }
+
+    panel.innerHTML = '<div style="color:var(--muted)">loading...</div>';
     panel.style.display = 'block';
+
+    try {
+      const r = await fetch(`/node?id=${encodeURIComponent(id)}`);
+      if (!r.ok) throw new Error(r.statusText);
+      const d = await r.json();
+      panel.innerHTML = buildDetailHTML(d);
+    } catch (e) {
+      panel.innerHTML = `<div style="color:var(--bad)">Error: ${e.message}</div>`;
+    }
+  }
+
+  function buildDetailHTML(d) {
+    const statusPill = d.status === 'done' ? 'pill-ok' : d.status === 'active' ? 'pill-warn' : '';
+    const evidenceBadge = d.evidence_status === 'poisoned'
+      ? '<span class="pill pill-bad">poisoned</span>'
+      : d.evidence_status === 'suspect'
+        ? '<span class="pill pill-warn">suspect</span>'
+        : d.evidence_status === 'revalidated'
+          ? '<span class="pill pill-ok">revalidated</span>' : '';
+
+    const idPad = String(d.id).padStart(4, '0');
+    const milestoneIcon = d.milestone_class === 'golden' ? ' \u2605' : '';
+
+    let html = `<strong>[${idPad}] ${esc(d.title)}${milestoneIcon}</strong>`;
+
+    html += '<div style="margin-top:6px">';
+
+    // Status row
+    html += `<div>Status: <span class="pill ${statusPill}">${d.status}</span>`;
+    html += ` Claim: <b>${d.claim_status}</b>`;
+    html += ` Outcome: <b>${d.outcome}</b>`;
+    html += ` Evidence: <b>${d.evidence_status}</b>${evidenceBadge}</div>`;
+
+    // Evidence cause
+    if (d.evidence_cause) html += `<div>Cause: ${d.evidence_cause}${d.evidence_scope ? ' — ' + d.evidence_scope : ''}</div>`;
+
+    // Poison / Invalidation reasons
+    if (d.poison_reason) html += `<div style="color:var(--bad)">\u2623 Poison: ${esc(d.poison_reason)}</div>`;
+    if (d.invalidation_reason) html += `<div style="color:var(--bad)">\u2717 Invalidated: ${esc(d.invalidation_reason)}</div>`;
+
+    // Milestone
+    if (d.milestone_class) {
+      html += `<div>\u2605 <b>Golden</b> ${d.milestone_kind || ''}`;
+      if (d.milestone_reason) html += `<br><span style="color:var(--muted)">${esc(d.milestone_reason).substring(0, 200)}</span>`;
+      html += '</div>';
+    }
+
+    // Graph metrics
+    html += `<div>Children: <b>${d.children.length}</b> (${d.pending_children} pending) | Hotness: <b>${d.hotness}</b></div>`;
+
+    // Lists: parents, children, continued, superseded
+    if (d.parents && d.parents.length) {
+      html += `<div>Parents: ${d.parents.map(p => {
+        const pp = d.primary_parent === p ? ' \u2605' : '';
+        return `<span class="pill pill-ok" style="cursor:pointer" onclick="event.stopPropagation();document.getElementById('${p}')?.emit('tap')">${String(p).padStart(4,'0')}${pp}</span>`;
+      }).join(' ')}</div>`;
+    }
+    if (d.children && d.children.length) {
+      html += `<div>Children: ${d.children.map(c =>
+        `<span class="pill pill-warn" style="cursor:pointer" onclick="event.stopPropagation();document.getElementById('${c}')?.emit('tap')">${String(c).padStart(4,'0')}</span>`
+      ).join(' ')}</div>`;
+    }
+    if (d.continued_by && d.continued_by.length) {
+      html += `<div>Continued by: ${d.continued_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    }
+    if (d.superseded_by && d.superseded_by.length) {
+      html += `<div>Superseded by: ${d.superseded_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    }
+    if (d.invalidated_by && d.invalidated_by.length) {
+      html += `<div style="color:var(--bad)">Invalidated by: ${d.invalidated_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    }
+    if (d.poisoned_by && d.poisoned_by.length) {
+      html += `<div style="color:var(--bad)">Poisoned by: ${d.poisoned_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    }
+    if (d.revalidated_by && d.revalidated_by.length) {
+      html += `<div style="color:var(--ok)">Revalidated by: ${d.revalidated_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    }
+
+    // Relations
+    if (d.relations && d.relations.length) {
+      html += '<div>Relations out: ' + d.relations.map(r =>
+        `<span class="pill" style="background:var(--muted)">[${r.type}]\u2192${String(r.target).padStart(4,'0')}</span>`
+      ).join(' ') + '</div>';
+    }
+    if (d.relation_of && d.relation_of.length) {
+      html += '<div>Relations in: ' + d.relation_of.map(r =>
+        `<span class="pill" style="background:var(--muted)">${String(r.target).padStart(4,'0')}\u2192[${r.type}]</span>`
+      ).join(' ') + '</div>';
+    }
+
+    // Meta
+    if (d.agent) html += `<div>Agent: <b>${esc(d.agent)}</b></div>`;
+    if (d.scope) html += `<div>Scope: ${esc(d.scope)}</div>`;
+    if (d.exit_criteria) html += `<div>Exit: ${esc(d.exit_criteria)}</div>`;
+    if (d.tags && d.tags.length) {
+      html += '<div>Tags: ' + d.tags.map(t => `<span class="pill">${esc(t)}</span>`).join(' ') + '</div>';
+    }
+
+    // Counts
+    html += `<div>Runs: <b>${d.runs_count}</b> | Artifacts: <b>${d.artifacts_count}</b> | Commits: <b>${d.commits_count}</b> | Rev: <b>${d.revision}</b></div>`;
+
+    // Dates
+    if (d.created) html += `<div style="color:var(--muted)">Created: ${fmtDate(d.created)}</div>`;
+    if (d.modified) html += `<div style="color:var(--muted)">Modified: ${fmtDate(d.modified)}</div>`;
+
+    // Body (truncated)
+    if (d.body) {
+      html += `<div style="margin-top:6px; padding:6px; background:#0a0f14; border-radius:6px; white-space:pre-wrap; max-height:200px; overflow-y:auto; font-size:11px; color:#9ca3af">${esc(d.body)}</div>`;
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function esc(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
   }
 
   function hideNodeDetail() {

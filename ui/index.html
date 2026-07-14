@@ -7,6 +7,15 @@
 <link rel="stylesheet" href="assets/css/style.css"/>
 <style>
   .dimmed { opacity: 0.2; transition: opacity 0.3s; }
+  #sidebar { transition: transform 0.25s ease; }
+  #sidebar.collapsed { transform: translateX(100%); }
+  #sidebar.collapsed ~ #cy { right: 0; }
+  #sidebar { right: 0; }
+  #sidebar-toggle {
+    position: absolute; right: 290px; top: 48px; z-index: 20;
+    background: var(--card); color: var(--fg); border: 1px solid var(--muted);
+    border-radius: 6px 0 0 6px; padding: 6px 8px; cursor: pointer; font-size: 13px;
+  }
 </style>
 </head>
 <body>
@@ -19,7 +28,7 @@
   <button id="btnPause">Pause</button>
   <span>·</span>
   <label>Filter
-    <input id="txtFilter" type="text" placeholder="title, tag, scope..." style="width:200px"/>
+    <input id="txtFilter" type="text" placeholder="title, tag, scope..." style="width:180px"/>
   </label>
   <label>Status
     <select id="selStatus">
@@ -47,16 +56,16 @@
       <option value="60000">60s</option>
     </select>
   </label>
-  <button id="btnRefresh" title="Force refresh" style="margin-left:6px">&#x21bb; Refresh</button>
+  <button id="btnRefresh" title="Force refresh" style="margin-left:6px">&#x21bb;</button>
+  <button id="btnSidebar" title="Toggle sidebar">&#x25C0;</button>
 </header>
 
 <div id="cy"></div>
 
-<aside id="sidebar">
+<aside id="sidebar" class="collapsed">
   <h3>Hotspots</h3>
   <ul id="hotspotList" style="list-style:none;padding:0;margin:0"></ul>
-
-  <div id="nodeDetail" style="display:none; margin-top:10px; padding:8px; background:#0d131a; border-radius:8px; border:1px solid var(--muted)"></div>
+  <div id="nodeDetail" style="display:none; margin-top:10px; padding:8px; background:#0d131a; border-radius:8px; border:1px solid var(--muted); font-size:11px; line-height:1.5; max-height:60vh; overflow-y:auto"></div>
 </aside>
 
 <div id="legend" class="legend"></div>
@@ -65,14 +74,12 @@
 <script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.0/lib/elk.bundled.js"></script>
 <script src="assets/js/flow/cytoscape-elk.js"></script>
 <script>
-  // Register cytoscape-elk
   try {
     if (window.cytoscape && window.cytoscapeElk && typeof window.cytoscape.use === 'function') {
       window.cytoscape.use(window.cytoscapeElk);
     }
   } catch(e) { console.warn('cytoscape-elk registration failed', e); }
 
-  // Adjust #cy top to header height
   function adjustLayout() {
     const h = document.querySelector('header');
     const cyEl = document.getElementById('cy');
@@ -85,18 +92,25 @@
   }
   window.addEventListener('load', adjustLayout);
   window.addEventListener('resize', adjustLayout);
+
+  // Sidebar toggle
+  document.addEventListener('DOMContentLoaded', () => {
+    const sidebar = document.getElementById('sidebar');
+    const btn = document.getElementById('btnSidebar');
+    if (btn && sidebar) {
+      btn.onclick = () => {
+        sidebar.classList.toggle('collapsed');
+        btn.textContent = sidebar.classList.contains('collapsed') ? '\u25C0' : '\u25B6';
+        adjustLayout();
+      };
+    }
+  });
 </script>
 
 <script type="module">
   import { bootCy } from './assets/js/flow/graph.js';
-
-  const btnRefresh = document.getElementById('btnRefresh');
-
-  const cy = await bootCy(document.getElementById('cy'));
-
-  if (btnRefresh) {
-    btnRefresh.onclick = () => location.reload();
-  }
+  document.getElementById('btnRefresh').onclick = () => location.reload();
+  bootCy(document.getElementById('cy'));
 </script>
 </body>
 </html>
