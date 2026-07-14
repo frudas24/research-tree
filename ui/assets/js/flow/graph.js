@@ -292,7 +292,7 @@ export async function bootCy(container) {
       html += '</div>';
     }
 
-    html += `<div>Children: <b>${d.children.length}</b> (${d.pending_children} pending) | Hotness: <b>${d.hotness}</b></div>`;
+    html += `<div>Children: <b>${(d.children||[]).length}</b> (${d.pending_children} pending) | Hotness: <b>${d.hotness}</b></div>`;
 
     if (d.parents && d.parents.length) {
       const pp = d.primary_parent;
