@@ -122,15 +122,17 @@ export async function bootCy(container) {
       } else if (doLayout) {
         lastLayoutAt = now;
         const layout = lay();
-        layout.one('layoutstop', () => { cy.zoom(zoom); cy.pan(pan); });
+        layout.one('layoutstop', () => {
+          try { cy.fit(cy.elements(), 50); } catch {}
+        });
         layout.run();
       } else {
         cy.zoom(zoom);
         cy.pan(pan);
       }
 
-      // Scroll to first matching node (text filter only)
-      if (firstMatch && state.filterText.trim()) {
+      // Scroll to first matching node (text search: precise, filter: fit done above)
+      if (firstMatch && state.filterText.trim() && !doLayout) {
         const n = cy.getElementById(String(firstMatch.id));
         if (n && !n.empty()) {
           cy.animate({ center: { eles: n }, duration: 400 });
