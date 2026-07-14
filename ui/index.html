@@ -9,12 +9,15 @@
   .dimmed { opacity: 0.2; transition: opacity 0.3s; }
   #sidebar { transition: transform 0.25s ease; }
   #sidebar.collapsed { transform: translateX(100%); }
-  #sidebar.collapsed ~ #cy { right: 0; }
-  #sidebar { right: 0; }
-  #sidebar-toggle {
-    position: absolute; right: 290px; top: 48px; z-index: 20;
-    background: var(--card); color: var(--fg); border: 1px solid var(--muted);
-    border-radius: 6px 0 0 6px; padding: 6px 8px; cursor: pointer; font-size: 13px;
+  #nodeDetail {
+    position: absolute; right: 10px; top: 50px; width: 320px; max-height: 75vh;
+    background: var(--card); border: 1px solid var(--muted); border-radius: 10px;
+    padding: 10px; font-size: 11px; line-height: 1.5; overflow-y: auto; z-index: 15;
+    display: none; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  #nodeDetail .close-btn {
+    position: absolute; right: 6px; top: 6px;
+    background: transparent; border: none; color: var(--fg); cursor: pointer; font-size: 14px;
   }
 </style>
 </head>
@@ -28,11 +31,11 @@
   <button id="btnPause">Pause</button>
   <span>·</span>
   <label>Filter
-    <input id="txtFilter" type="text" placeholder="title, tag, scope..." style="width:180px"/>
+    <input id="txtFilter" type="text" placeholder="id, title, tag, scope, agent..." style="width:200px"/>
   </label>
   <label>Status
     <select id="selStatus">
-      <option value="">All</option>
+      <option value="all">All</option>
       <option value="active">Active</option>
       <option value="done">Done</option>
       <option value="paused">Paused</option>
@@ -40,7 +43,7 @@
   </label>
   <label>Claim
     <select id="selClaim">
-      <option value="">All</option>
+      <option value="all">All</option>
       <option value="validated">Validated</option>
       <option value="provisional">Provisional</option>
       <option value="invalidated">Invalidated</option>
@@ -56,8 +59,9 @@
       <option value="60000">60s</option>
     </select>
   </label>
-  <button id="btnRefresh" title="Force refresh" style="margin-left:6px">&#x21bb;</button>
-  <button id="btnSidebar" title="Toggle sidebar">&#x25C0;</button>
+  <button id="btnRefresh" title="Force refresh">&#x21bb;</button>
+  <button id="btnDetail" title="Toggle node detail panel">&#x1F4CB; Detail</button>
+  <button id="btnSidebar" title="Toggle hotspot sidebar">&#x25C0; Hot</button>
 </header>
 
 <div id="cy"></div>
@@ -65,8 +69,12 @@
 <aside id="sidebar" class="collapsed">
   <h3>Hotspots</h3>
   <ul id="hotspotList" style="list-style:none;padding:0;margin:0"></ul>
-  <div id="nodeDetail" style="display:none; margin-top:10px; padding:8px; background:#0d131a; border-radius:8px; border:1px solid var(--muted); font-size:11px; line-height:1.5; max-height:60vh; overflow-y:auto"></div>
 </aside>
+
+<div id="nodeDetail">
+  <button class="close-btn" id="btnDetailClose">&times;</button>
+  <div id="nodeDetailContent">Click a node to see details</div>
+</div>
 
 <div id="legend" class="legend"></div>
 
@@ -84,32 +92,24 @@
     const h = document.querySelector('header');
     const cyEl = document.getElementById('cy');
     const sb = document.getElementById('sidebar');
+    const nd = document.getElementById('nodeDetail');
     if (h && cyEl) {
       const topPx = h.offsetHeight + 'px';
       cyEl.style.top = topPx;
       if (sb) sb.style.top = topPx;
+      if (nd) nd.style.top = (h.offsetHeight + 8) + 'px';
     }
   }
   window.addEventListener('load', adjustLayout);
   window.addEventListener('resize', adjustLayout);
-
-  // Sidebar toggle
-  document.addEventListener('DOMContentLoaded', () => {
-    const sidebar = document.getElementById('sidebar');
-    const btn = document.getElementById('btnSidebar');
-    if (btn && sidebar) {
-      btn.onclick = () => {
-        sidebar.classList.toggle('collapsed');
-        btn.textContent = sidebar.classList.contains('collapsed') ? '\u25C0' : '\u25B6';
-        adjustLayout();
-      };
-    }
-  });
 </script>
 
 <script type="module">
   import { bootCy } from './assets/js/flow/graph.js';
   document.getElementById('btnRefresh').onclick = () => location.reload();
+  document.getElementById('btnDetailClose').onclick = () => {
+    document.getElementById('nodeDetail').style.display = 'none';
+  };
   bootCy(document.getElementById('cy'));
 </script>
 </body>

@@ -13,7 +13,6 @@ async function fetchGraph() {
 export async function bootCy(container) {
   const cy = cytoscape({ container, elements: [], style: style(), pixelRatio: 1 });
 
-  // ELK layered layout (top-down DAG)
   const lay = () => cy.layout({
     name: 'elk',
     fit: false,
@@ -26,51 +25,62 @@ export async function bootCy(container) {
     },
   });
 
-  // ── In-memory state (synapp2 pattern) ──
+  // ── In-memory state ──
   const state = {
-    nodes: new Map(),   // id → server node payload
-    edges: new Map(),   // "parent:id->id" → edge
-    relations: new Map(), // "rel:id->id:type" → relation edge
+    nodes: new Map(),
+    edges: new Map(),
+    relations: new Map(),
     lastRefresh: 0,
     paused: false,
     filterText: '',
     filterStatus: '',
     filterClaim: '',
+    detailVisible: false,
   };
 
-  function upsertNode(id, n) {
-    state.nodes.set(String(id), n);
-  }
+  function upsertNode(id, n) { state.nodes.set(String(id), n); }
   function upsertEdge(from, to, type, weight) {
-    const key = `${type}:${from}->${to}`;
-    state.edges.set(key, { from, to, type, weight: weight || 1 });
+    state.edges.set(`${type}:${from}->${to}`, { from, to, type, weight: weight || 1 });
   }
 
-  // Build snapshot from state
   function snapshotFromState() {
-    const nodes = Array.from(state.nodes.values());
-    const edges = Array.from(state.edges.values());
-    const relations = Array.from(state.relations.values());
-    return { nodes, edges, relations };
+    return {
+      nodes: Array.from(state.nodes.values()),
+      edges: Array.from(state.edges.values()),
+      relations: Array.from(state.relations.values()),
+    };
   }
 
-  // Apply filters
+  // Filter + search: returns { filtered, firstMatch } so we can scroll to it
   function filterNodes(nodes) {
     const f = state.filterText.toLowerCase().trim();
     const fs = state.filterStatus;
     const fc = state.filterClaim;
-    return nodes.filter(n => {
-      if (fs && n.status !== fs) return false;
-      if (fc && n.claim_status !== fc) return false;
+
+    let first = null;
+    const result = [];
+
+    for (const n of nodes) {
+      if (fs && fs !== 'all' && n.status !== fs) continue;
+      if (fc && fc !== 'all' && n.claim_status !== fc) continue;
+
       if (f) {
         const title = (n.title || '').toLowerCase();
         const sid = String(n.id);
+        const padId = String(n.id).padStart(4, '0');
         const tags = (n.tags || []).join(' ').toLowerCase();
         const scope = (n.scope || '').toLowerCase();
-        return title.includes(f) || sid.includes(f) || tags.includes(f) || scope.includes(f);
+        const agent = (n.agent || '').toLowerCase();
+        const match = title.includes(f) || sid === f || padId === f ||
+          tags.includes(f) || scope.includes(f) || agent.includes(f);
+        if (!match) continue;
       }
-      return true;
-    });
+
+      result.push(n);
+      if (!first) first = n;
+    }
+
+    return { filtered: result, firstMatch: first };
   }
 
   let firstLayoutDone = false;
@@ -80,11 +90,12 @@ export async function bootCy(container) {
   async function refresh() {
     try {
       const raw = snapshotFromState();
-      const filtered = filterNodes(raw.nodes);
-      // Rebuild edges for filtered nodes only
+      const { filtered, firstMatch } = filterNodes(raw.nodes);
       const filteredIds = new Set(filtered.map(n => String(n.id)));
-      const filteredEdges = raw.edges.filter(e => filteredIds.has(String(e.from)) && filteredIds.has(String(e.to)));
-      const filteredRels = raw.relations.filter(r => filteredIds.has(String(r.from)) && filteredIds.has(String(r.target)));
+      const filteredEdges = raw.edges.filter(e =>
+        filteredIds.has(String(e.from)) && filteredIds.has(String(e.to)));
+      const filteredRels = raw.relations.filter(r =>
+        filteredIds.has(String(r.from)) && filteredIds.has(String(r.target)));
 
       const g = { nodes: filtered, edges: filteredEdges, relations: filteredRels };
       const els = toElements(g);
@@ -93,7 +104,8 @@ export async function bootCy(container) {
       const pan = cy.pan();
 
       cy.startBatch();
-      const changed = applyDiff(cy, els, true);
+      // keepHistory=false so stale filtered-out nodes are removed
+      const changed = applyDiff(cy, els, false);
       cy.endBatch();
 
       const now = Date.now();
@@ -120,7 +132,14 @@ export async function bootCy(container) {
         cy.pan(pan);
       }
 
-      // Update stats
+      // Scroll to first matching node (text filter only)
+      if (firstMatch && state.filterText.trim()) {
+        const n = cy.getElementById(String(firstMatch.id));
+        if (n && !n.empty()) {
+          cy.animate({ center: { eles: n }, duration: 400 });
+        }
+      }
+
       const hint = document.getElementById('cyHint');
       if (hint) {
         hint.textContent = `nodes=${filtered.length} edges=${filteredEdges.length + filteredRels.length}`;
@@ -130,7 +149,7 @@ export async function bootCy(container) {
     }
   }
 
-  // ── Data ingestion: full reload from /graph ──
+  // ── Data ingestion ──
   async function ingestGraph(data) {
     state.nodes.clear();
     state.edges.clear();
@@ -139,17 +158,18 @@ export async function bootCy(container) {
     (data.nodes || []).forEach(n => upsertNode(n.id, n));
     (data.edges || []).forEach(e => upsertEdge(e.from, e.to, 'parent', 1));
     (data.relations || []).forEach(r => {
-      const key = `rel:${r.from}->${r.target}:${r.type}`;
-      state.relations.set(key, { from: r.from, target: r.target, type: r.type, note: r.note || '' });
+      state.relations.set(`rel:${r.from}->${r.target}:${r.type}`, {
+        from: r.from, target: r.target, type: r.type, note: r.note || '',
+      });
     });
 
     await refresh();
     renderSidebar(data.nodes || []);
   }
 
-  // ── Polling loop (primary transport for RT) ──
+  // ── Polling ──
   let pollTimer = null;
-  let pollInterval = 5000;
+  let pollInterval = 10000;
 
   async function poll() {
     try {
@@ -163,7 +183,7 @@ export async function bootCy(container) {
     }
   }
 
-  // ── Sidebar: top hotspots ──
+  // ── Sidebar: hotspots ──
   function renderSidebar(nodes) {
     const list = document.getElementById('hotspotList');
     if (!list) return;
@@ -178,40 +198,196 @@ export async function bootCy(container) {
       const li = document.createElement('li');
       li.className = 'node-item';
       li.onclick = () => {
-        cy.animate({ center: { eles: `#${n.id}` }, duration: 300 });
+        const cyNode = cy.getElementById(String(n.id));
+        if (cyNode && !cyNode.empty()) {
+          cy.animate({ center: { eles: cyNode }, duration: 300 });
+        }
       };
-
       const name = document.createElement('span');
       name.className = 'name';
       name.textContent = `[${String(n.id).padStart(4, '0')}] ${n.title || ''}`;
-
       const m = document.createElement('span');
       m.className = 'metric';
       m.textContent = `h=${n.hotness || 0}`;
-
       li.appendChild(name);
       li.appendChild(m);
       list.appendChild(li);
     });
   }
 
-  // ── Controls ──
+  // ── Node detail panel (independent of hotspot sidebar) ──
+  async function showNodeDetail(node) {
+    const id = node.id();
+    const panel = document.getElementById('nodeDetail');
+    const content = document.getElementById('nodeDetailContent');
+    if (!panel || !content) return;
+
+    content.innerHTML = '<div style="color:var(--muted)">loading...</div>';
+    panel.style.display = 'block';
+
+    try {
+      const r = await fetch(`/node?id=${encodeURIComponent(id)}`);
+      if (!r.ok) throw new Error(r.statusText);
+      const d = await r.json();
+      content.innerHTML = buildDetailHTML(d);
+    } catch (e) {
+      content.innerHTML = `<div style="color:var(--bad)">Error: ${e.message}</div>`;
+    }
+  }
+
+  function hideNodeDetail() {
+    const panel = document.getElementById('nodeDetail');
+    if (panel) panel.style.display = 'none';
+  }
+
+  function buildDetailHTML(d) {
+    const statusPill = d.status === 'done' ? 'pill-ok' : d.status === 'active' ? 'pill-warn' : '';
+    const evidenceBadge = d.evidence_status === 'poisoned'
+      ? '<span class="pill pill-bad">poisoned</span>'
+      : d.evidence_status === 'suspect'
+        ? '<span class="pill pill-warn">suspect</span>'
+        : d.evidence_status === 'revalidated'
+          ? '<span class="pill pill-ok">revalidated</span>' : '';
+    const idPad = String(d.id).padStart(4, '0');
+    const milestoneIcon = d.milestone_class === 'golden' ? ' \u2605' : '';
+
+    let html = `<strong>[${idPad}] ${esc(d.title)}${milestoneIcon}</strong>`;
+    html += '<div style="margin-top:6px">';
+
+    html += `<div>Status: <span class="pill ${statusPill}">${d.status}</span>`;
+    html += ` Claim: <b>${d.claim_status}</b>`;
+    html += ` Outcome: <b>${d.outcome}</b>`;
+    html += ` Evidence: <b>${d.evidence_status}</b>${evidenceBadge}</div>`;
+
+    if (d.evidence_cause) html += `<div>Cause: ${d.evidence_cause}${d.evidence_scope ? ' — ' + d.evidence_scope : ''}</div>`;
+    if (d.poison_reason) html += `<div style="color:var(--bad)">\u2623 Poison: ${esc(d.poison_reason)}</div>`;
+    if (d.invalidation_reason) html += `<div style="color:var(--bad)">\u2717 Invalidated: ${esc(d.invalidation_reason)}</div>`;
+
+    if (d.milestone_class) {
+      html += `<div>\u2605 <b>Golden</b> ${d.milestone_kind || ''}`;
+      if (d.milestone_reason) html += `<br><span style="color:var(--muted)">${esc(d.milestone_reason).substring(0, 200)}</span>`;
+      html += '</div>';
+    }
+
+    html += `<div>Children: <b>${d.children.length}</b> (${d.pending_children} pending) | Hotness: <b>${d.hotness}</b></div>`;
+
+    if (d.parents && d.parents.length) {
+      const pp = d.primary_parent;
+      html += `<div>Parents: ${d.parents.map(p => {
+        const star = pp === p ? ' \u2605' : '';
+        return `<span class="pill pill-ok" style="cursor:pointer" onclick="event.stopPropagation();document.getElementById('${p}')?.emit('tap')">${String(p).padStart(4,'0')}${star}</span>`;
+      }).join(' ')}</div>`;
+    }
+    if (d.children && d.children.length) {
+      html += `<div>Children: ${d.children.map(c =>
+        `<span class="pill pill-warn" style="cursor:pointer" onclick="event.stopPropagation();document.getElementById('${c}')?.emit('tap')">${String(c).padStart(4,'0')}</span>`
+      ).join(' ')}</div>`;
+    }
+    if (d.continued_by && d.continued_by.length) html += `<div>Continued by: ${d.continued_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    if (d.superseded_by && d.superseded_by.length) html += `<div>Superseded by: ${d.superseded_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    if (d.invalidated_by && d.invalidated_by.length) html += `<div style="color:var(--bad)">Invalidated by: ${d.invalidated_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    if (d.poisoned_by && d.poisoned_by.length) html += `<div style="color:var(--bad)">Poisoned by: ${d.poisoned_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+    if (d.revalidated_by && d.revalidated_by.length) html += `<div style="color:var(--ok)">Revalidated by: ${d.revalidated_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
+
+    if (d.relations && d.relations.length) {
+      html += '<div>Relations out: ' + d.relations.map(r =>
+        `<span class="pill" style="background:var(--muted)">[${r.type}]\u2192${String(r.target).padStart(4,'0')}</span>`
+      ).join(' ') + '</div>';
+    }
+    if (d.relation_of && d.relation_of.length) {
+      html += '<div>Relations in: ' + d.relation_of.map(r =>
+        `<span class="pill" style="background:var(--muted)">${String(r.target).padStart(4,'0')}\u2192[${r.type}]</span>`
+      ).join(' ') + '</div>';
+    }
+
+    if (d.agent) html += `<div>Agent: <b>${esc(d.agent)}</b></div>`;
+    if (d.scope) html += `<div>Scope: ${esc(d.scope)}</div>`;
+    if (d.exit_criteria) html += `<div>Exit: ${esc(d.exit_criteria)}</div>`;
+    if (d.tags && d.tags.length) {
+      html += '<div>Tags: ' + d.tags.map(t => `<span class="pill">${esc(t)}</span>`).join(' ') + '</div>';
+    }
+
+    html += `<div>Runs: <b>${d.runs_count}</b> | Artifacts: <b>${d.artifacts_count}</b> | Commits: <b>${d.commits_count}</b> | Rev: <b>${d.revision}</b></div>`;
+    if (d.created) html += `<div style="color:var(--muted)">Created: ${fmtDate(d.created)}</div>`;
+    if (d.modified) html += `<div style="color:var(--muted)">Modified: ${fmtDate(d.modified)}</div>`;
+
+    if (d.body) {
+      html += `<div style="margin-top:6px; padding:6px; background:#0a0f14; border-radius:6px; white-space:pre-wrap; max-height:200px; overflow-y:auto; font-size:11px; color:#9ca3af">${esc(d.body)}</div>`;
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  function esc(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
+  }
+
+  // ── Context menu ──
+  function showContextMenu(x, y, node) {
+    const old = document.querySelector('.cy-menu');
+    if (old) old.remove();
+
+    const menu = document.createElement('div');
+    menu.className = 'cy-menu';
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+
+    const items = [
+      { label: `Focus on ${node.id()}`, action: () => cy.fit(node, 80) },
+      {
+        label: 'Show neighbors (k=1)', action: () => {
+          const nhood = node.closedNeighborhood();
+          cy.elements().addClass('dimmed');
+          nhood.removeClass('dimmed');
+        },
+      },
+      {
+        label: 'Reset view', action: () => {
+          cy.elements().removeClass('dimmed');
+          cy.fit(cy.elements(), 50);
+        },
+      },
+    ];
+
+    items.forEach(it => {
+      const btn = document.createElement('button');
+      btn.textContent = it.label;
+      btn.onclick = () => { it.action(); menu.remove(); };
+      menu.appendChild(btn);
+    });
+
+    document.body.appendChild(menu);
+    const close = (e) => {
+      if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); }
+    };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+
+  // ── Controls wiring ──
   function wireControls() {
     const pauseBtn = document.getElementById('btnPause');
     const txtFilter = document.getElementById('txtFilter');
     const selStatus = document.getElementById('selStatus');
     const selClaim = document.getElementById('selClaim');
     const pollSel = document.getElementById('selPollInterval');
+    const btnSidebar = document.getElementById('btnSidebar');
+    const btnDetail = document.getElementById('btnDetail');
 
     if (pauseBtn) {
       pauseBtn.onclick = () => {
         state.paused = !state.paused;
         pauseBtn.textContent = state.paused ? 'Resume' : 'Pause';
-        if (!state.paused) {
-          pollTimer = setTimeout(poll, 500);
-        } else {
-          clearTimeout(pollTimer);
-        }
+        if (!state.paused) pollTimer = setTimeout(poll, 500);
+        else clearTimeout(pollTimer);
       };
     }
 
@@ -238,211 +414,57 @@ export async function bootCy(container) {
 
     if (pollSel) {
       pollSel.addEventListener('change', () => {
-        pollInterval = parseInt(pollSel.value, 10) || 5000;
+        pollInterval = parseInt(pollSel.value, 10) || 10000;
       });
     }
 
-    // Node click → show detail
+    // Sidebar toggle (hotspots only)
+    if (btnSidebar) {
+      btnSidebar.onclick = () => {
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) {
+          sidebar.classList.toggle('collapsed');
+          btnSidebar.textContent = sidebar.classList.contains('collapsed') ? '\u25C0' : '\u25B6';
+        }
+      };
+    }
+
+    // Detail panel toggle (independent floating panel)
+    if (btnDetail) {
+      btnDetail.onclick = () => {
+        const panel = document.getElementById('nodeDetail');
+        if (!panel) return;
+        if (panel.style.display === 'block') {
+          panel.style.display = 'none';
+        } else {
+          panel.style.display = 'block';
+        }
+      };
+    }
+
+    // Node interactions
     cy.on('tap', 'node', (evt) => {
       const node = evt.target;
       showNodeDetail(node);
+      // If detail is pinned open, update it
+      const panel = document.getElementById('nodeDetail');
+      if (panel && panel.dataset.pinned === 'true') {
+        panel.dataset.lastNode = node.id();
+      }
     });
 
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
-        hideNodeDetail();
+        const panel = document.getElementById('nodeDetail');
+        if (panel && panel.dataset.pinned !== 'true') {
+          hideNodeDetail();
+        }
       }
     });
 
-    // Right-click context menu
     cy.on('cxttap', 'node', (evt) => {
-      const node = evt.target;
-      showContextMenu(evt.originalEvent.clientX, evt.originalEvent.clientY, node);
+      showContextMenu(evt.originalEvent.clientX, evt.originalEvent.clientY, evt.target);
     });
-  }
-
-  async function showNodeDetail(node) {
-    const id = node.id();
-    const panel = document.getElementById('nodeDetail');
-    if (!panel) return;
-
-    // Expand sidebar if collapsed
-    const sidebar = document.getElementById('sidebar');
-    if (sidebar && sidebar.classList.contains('collapsed')) {
-      sidebar.classList.remove('collapsed');
-      const btn = document.getElementById('btnSidebar');
-      if (btn) btn.textContent = '\u25B6';
-    }
-
-    panel.innerHTML = '<div style="color:var(--muted)">loading...</div>';
-    panel.style.display = 'block';
-
-    try {
-      const r = await fetch(`/node?id=${encodeURIComponent(id)}`);
-      if (!r.ok) throw new Error(r.statusText);
-      const d = await r.json();
-      panel.innerHTML = buildDetailHTML(d);
-    } catch (e) {
-      panel.innerHTML = `<div style="color:var(--bad)">Error: ${e.message}</div>`;
-    }
-  }
-
-  function buildDetailHTML(d) {
-    const statusPill = d.status === 'done' ? 'pill-ok' : d.status === 'active' ? 'pill-warn' : '';
-    const evidenceBadge = d.evidence_status === 'poisoned'
-      ? '<span class="pill pill-bad">poisoned</span>'
-      : d.evidence_status === 'suspect'
-        ? '<span class="pill pill-warn">suspect</span>'
-        : d.evidence_status === 'revalidated'
-          ? '<span class="pill pill-ok">revalidated</span>' : '';
-
-    const idPad = String(d.id).padStart(4, '0');
-    const milestoneIcon = d.milestone_class === 'golden' ? ' \u2605' : '';
-
-    let html = `<strong>[${idPad}] ${esc(d.title)}${milestoneIcon}</strong>`;
-
-    html += '<div style="margin-top:6px">';
-
-    // Status row
-    html += `<div>Status: <span class="pill ${statusPill}">${d.status}</span>`;
-    html += ` Claim: <b>${d.claim_status}</b>`;
-    html += ` Outcome: <b>${d.outcome}</b>`;
-    html += ` Evidence: <b>${d.evidence_status}</b>${evidenceBadge}</div>`;
-
-    // Evidence cause
-    if (d.evidence_cause) html += `<div>Cause: ${d.evidence_cause}${d.evidence_scope ? ' — ' + d.evidence_scope : ''}</div>`;
-
-    // Poison / Invalidation reasons
-    if (d.poison_reason) html += `<div style="color:var(--bad)">\u2623 Poison: ${esc(d.poison_reason)}</div>`;
-    if (d.invalidation_reason) html += `<div style="color:var(--bad)">\u2717 Invalidated: ${esc(d.invalidation_reason)}</div>`;
-
-    // Milestone
-    if (d.milestone_class) {
-      html += `<div>\u2605 <b>Golden</b> ${d.milestone_kind || ''}`;
-      if (d.milestone_reason) html += `<br><span style="color:var(--muted)">${esc(d.milestone_reason).substring(0, 200)}</span>`;
-      html += '</div>';
-    }
-
-    // Graph metrics
-    html += `<div>Children: <b>${d.children.length}</b> (${d.pending_children} pending) | Hotness: <b>${d.hotness}</b></div>`;
-
-    // Lists: parents, children, continued, superseded
-    if (d.parents && d.parents.length) {
-      html += `<div>Parents: ${d.parents.map(p => {
-        const pp = d.primary_parent === p ? ' \u2605' : '';
-        return `<span class="pill pill-ok" style="cursor:pointer" onclick="event.stopPropagation();document.getElementById('${p}')?.emit('tap')">${String(p).padStart(4,'0')}${pp}</span>`;
-      }).join(' ')}</div>`;
-    }
-    if (d.children && d.children.length) {
-      html += `<div>Children: ${d.children.map(c =>
-        `<span class="pill pill-warn" style="cursor:pointer" onclick="event.stopPropagation();document.getElementById('${c}')?.emit('tap')">${String(c).padStart(4,'0')}</span>`
-      ).join(' ')}</div>`;
-    }
-    if (d.continued_by && d.continued_by.length) {
-      html += `<div>Continued by: ${d.continued_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
-    }
-    if (d.superseded_by && d.superseded_by.length) {
-      html += `<div>Superseded by: ${d.superseded_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
-    }
-    if (d.invalidated_by && d.invalidated_by.length) {
-      html += `<div style="color:var(--bad)">Invalidated by: ${d.invalidated_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
-    }
-    if (d.poisoned_by && d.poisoned_by.length) {
-      html += `<div style="color:var(--bad)">Poisoned by: ${d.poisoned_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
-    }
-    if (d.revalidated_by && d.revalidated_by.length) {
-      html += `<div style="color:var(--ok)">Revalidated by: ${d.revalidated_by.map(c => String(c).padStart(4,'0')).join(', ')}</div>`;
-    }
-
-    // Relations
-    if (d.relations && d.relations.length) {
-      html += '<div>Relations out: ' + d.relations.map(r =>
-        `<span class="pill" style="background:var(--muted)">[${r.type}]\u2192${String(r.target).padStart(4,'0')}</span>`
-      ).join(' ') + '</div>';
-    }
-    if (d.relation_of && d.relation_of.length) {
-      html += '<div>Relations in: ' + d.relation_of.map(r =>
-        `<span class="pill" style="background:var(--muted)">${String(r.target).padStart(4,'0')}\u2192[${r.type}]</span>`
-      ).join(' ') + '</div>';
-    }
-
-    // Meta
-    if (d.agent) html += `<div>Agent: <b>${esc(d.agent)}</b></div>`;
-    if (d.scope) html += `<div>Scope: ${esc(d.scope)}</div>`;
-    if (d.exit_criteria) html += `<div>Exit: ${esc(d.exit_criteria)}</div>`;
-    if (d.tags && d.tags.length) {
-      html += '<div>Tags: ' + d.tags.map(t => `<span class="pill">${esc(t)}</span>`).join(' ') + '</div>';
-    }
-
-    // Counts
-    html += `<div>Runs: <b>${d.runs_count}</b> | Artifacts: <b>${d.artifacts_count}</b> | Commits: <b>${d.commits_count}</b> | Rev: <b>${d.revision}</b></div>`;
-
-    // Dates
-    if (d.created) html += `<div style="color:var(--muted)">Created: ${fmtDate(d.created)}</div>`;
-    if (d.modified) html += `<div style="color:var(--muted)">Modified: ${fmtDate(d.modified)}</div>`;
-
-    // Body (truncated)
-    if (d.body) {
-      html += `<div style="margin-top:6px; padding:6px; background:#0a0f14; border-radius:6px; white-space:pre-wrap; max-height:200px; overflow-y:auto; font-size:11px; color:#9ca3af">${esc(d.body)}</div>`;
-    }
-
-    html += '</div>';
-    return html;
-  }
-
-  function esc(s) {
-    if (!s) return '';
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
-  }
-
-  function fmtDate(iso) {
-    if (!iso) return '';
-    try { return new Date(iso).toLocaleString(); } catch { return iso; }
-  }
-
-  function hideNodeDetail() {
-    const panel = document.getElementById('nodeDetail');
-    if (panel) panel.style.display = 'none';
-  }
-
-  function showContextMenu(x, y, node) {
-    // Remove existing
-    const old = document.querySelector('.cy-menu');
-    if (old) old.remove();
-
-    const menu = document.createElement('div');
-    menu.className = 'cy-menu';
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
-
-    const id = node.id();
-    const items = [
-      { label: `Focus on ${id}`, action: () => cy.fit(node, 80) },
-      { label: 'Show neighbors (k=1)', action: () => {
-        const nhood = node.closedNeighborhood();
-        cy.elements().addClass('dimmed');
-        nhood.removeClass('dimmed');
-      }},
-      { label: 'Reset view', action: () => {
-        cy.elements().removeClass('dimmed');
-        cy.fit(cy.elements(), 50);
-      }},
-    ];
-
-    items.forEach(it => {
-      const btn = document.createElement('button');
-      btn.textContent = it.label;
-      btn.onclick = () => { it.action(); menu.remove(); };
-      menu.appendChild(btn);
-    });
-
-    document.body.appendChild(menu);
-    const close = (e) => {
-      if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', close); }
-    };
-    setTimeout(() => document.addEventListener('click', close), 0);
   }
 
   // ── Legend ──
@@ -463,7 +485,6 @@ export async function bootCy(container) {
   wireControls();
   renderLegend(document.getElementById('legend'));
 
-  // Initial load
   try {
     const seed = await fetchGraph();
     await ingestGraph(seed);
@@ -471,7 +492,7 @@ export async function bootCy(container) {
     console.warn('initial graph load failed', e);
   }
 
-  // Start polling
+  // Re-apply current filter on poll refresh
   pollTimer = setTimeout(poll, pollInterval);
 
   return cy;
