@@ -171,6 +171,7 @@ func TestCurrentNodeExplicitOverridesDerived(t *testing.T) {
 	mustNoErr(t, err)
 	mustNoErr(t, s.LinkNodeToFeature(f.ID, root.ID, RoleDecision))
 	mustNoErr(t, s.SetFeatureCurrentNode(f.ID, child.ID))
+	mustNoErr(t, s.LinkNodeToFeature(f.ID, child.ID, RoleFix))
 
 	got, err := s.GetFeature(f.ID)
 	mustNoErr(t, err)

@@ -210,6 +210,14 @@ func (f *Feature) resolveCurrentNode() {
 	f.CurrentNode = latest
 }
 
+func (f *Feature) maybeResolveCurrentNode() {
+	if f.CurrentNodeMode == "explicit" {
+		return
+	}
+	f.CurrentNodeMode = "derived"
+	f.resolveCurrentNode()
+}
+
 // SetFeatureStatus updates the feature status.
 func (s *Store) SetFeatureStatus(featureSpec string, status FeatureStatus) error {
 	fid, err := s.resolveFeatureID(featureSpec)
