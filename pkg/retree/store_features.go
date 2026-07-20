@@ -185,15 +185,19 @@ func (s *Store) LinkNodeToFeature(featureSpec string, nodeID NodeID, role Featur
 					return nil // already linked with same role
 				}
 				target.Nodes[i].Role = role
-				target.CurrentNodeMode = "derived"
-				target.resolveCurrentNode()
+				target.maybeResolveCurrentNode()
+				if err := ValidateFeature(target); err != nil {
+					return err
+				}
 				return s.saveFeaturePayload(payload)
 			}
 		}
 		// New link
 		target.Nodes = append(target.Nodes, FeatureLinkedNode{NodeID: nodeID, Role: role})
-		target.CurrentNodeMode = "derived"
-		target.resolveCurrentNode()
+		target.maybeResolveCurrentNode()
+		if err := ValidateFeature(target); err != nil {
+			return err
+		}
 		return s.saveFeaturePayload(payload)
 	})
 }
