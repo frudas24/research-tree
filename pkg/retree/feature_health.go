@@ -41,26 +41,30 @@ type TimelineEntry struct {
 }
 
 // ComputeFeatureHealth computes derived_health for a feature.
-// It checks linked nodes (local) and edge propagation (neighbors, one level only).
+// It checks linked nodes (local) and propagates health through dependency edges.
 func (s *Store) ComputeFeatureHealth(spec string) (*FeatureHealthReport, error) {
-	report, err := s.computeLocalFeatureHealth(spec)
+	edges, err := s.ListAllFeatureEdges()
+	if err != nil {
+		return nil, fmt.Errorf("compute feature health: read feature edges: %w", err)
+	}
+	degradedMemo := make(map[string]bool)
+	degradedInProgress := make(map[string]bool)
+	return s.computeFeatureHealthWithDeps(spec, edges, degradedMemo, degradedInProgress)
+}
+
+func (s *Store) computeFeatureHealthWithDeps(spec string, edges []FeatureEdge, degradedMemo map[string]bool, degradedInProgress map[string]bool) (*FeatureHealthReport, error) {
+	f, err := s.GetFeature(spec)
 	if err != nil {
 		return nil, err
 	}
-
-	// Edge propagation: only check immediate neighbors (one level)
-	edges, eerr := s.ListAllFeatureEdges()
-	if eerr != nil {
-		return report, nil
+	report, err := s.computeLocalFeatureHealth(f.ID)
+	if err != nil {
+		return nil, err
 	}
-
-	featureHealth := make(map[string]DerivedHealth)
-	featureHealth[report.FeatureID] = report.Health
-
 	for _, e := range edges {
 		// Check unmoored
 		if _, nerr := s.GetNode(e.CreatedFrom); nerr != nil {
-			if e.From == report.FeatureID || e.To == report.FeatureID {
+			if e.From == f.ID || e.To == f.ID {
 				report.Health = worstHealth(report.Health, HealthUnmoored)
 				report.Issues = append(report.Issues,
 					fmt.Sprintf("edge %s -[%s]-> %s is unmoored (node %04d not found)",
@@ -69,24 +73,29 @@ func (s *Store) ComputeFeatureHealth(spec string) (*FeatureHealthReport, error) 
 			continue
 		}
 
-		// Propagate depends_on: one-level local check only
-		if e.Type == EdgeDependsOn && e.From == report.FeatureID {
-			depHealth := s.getFeatureHealth(e.To, featureHealth)
-			if depHealth == HealthDegraded {
+		if e.Type == EdgeDependsOn && e.From == f.ID {
+			degraded, err := s.computeDependsOnDegraded(e.To, edges, degradedMemo, degradedInProgress)
+			if err != nil {
+				return nil, err
+			}
+			if degraded {
 				report.Health = worstHealth(report.Health, HealthDegraded)
 				report.Issues = append(report.Issues,
 					fmt.Sprintf("depends_on %s which is degraded", e.To))
 			}
 		}
 
-		// Propagate collaborates_with
-		if e.Type == EdgeCollaboratesWith && (e.From == report.FeatureID || e.To == report.FeatureID) {
+		// Collaboration warns only when the directly connected feature is degraded.
+		if e.Type == EdgeCollaboratesWith && (e.From == f.ID || e.To == f.ID) {
 			other := e.To
-			if e.To == report.FeatureID {
+			if e.To == f.ID {
 				other = e.From
 			}
-			colHealth := s.getFeatureHealth(other, featureHealth)
-			if colHealth == HealthDegraded {
+			degraded, err := s.computeDependsOnDegraded(other, edges, degradedMemo, degradedInProgress)
+			if err != nil {
+				return nil, err
+			}
+			if degraded {
 				report.Health = worstHealth(report.Health, HealthWarning)
 				report.Issues = append(report.Issues,
 					fmt.Sprintf("collaborates_with %s which is degraded → warning", other))
@@ -94,28 +103,50 @@ func (s *Store) ComputeFeatureHealth(spec string) (*FeatureHealthReport, error) 
 		}
 
 		// Supersedes: report retirement candidate
-		if e.Type == EdgeSupersedes && e.To == report.FeatureID {
+		if e.Type == EdgeSupersedes && e.To == f.ID {
 			report.Issues = append(report.Issues,
 				fmt.Sprintf("superseded by %s — consider retiring (from node %04d)", e.From, e.CreatedFrom))
 		}
 	}
-
 	return report, nil
 }
 
-// getFeatureHealth computes or returns cached health for a feature.
-// Uses only local (non-edge-propagated) health to avoid infinite recursion.
-func (s *Store) getFeatureHealth(spec string, cache map[string]DerivedHealth) DerivedHealth {
-	if h, ok := cache[spec]; ok {
-		return h
-	}
-	report, err := s.computeLocalFeatureHealth(spec)
+func (s *Store) computeDependsOnDegraded(spec string, edges []FeatureEdge, memo map[string]bool, inProgress map[string]bool) (bool, error) {
+	f, err := s.GetFeature(spec)
 	if err != nil {
-		cache[spec] = HealthClean
-		return HealthClean
+		return false, err
 	}
-	cache[spec] = report.Health
-	return report.Health
+	if degraded, ok := memo[f.ID]; ok {
+		return degraded, nil
+	}
+	if inProgress[f.ID] {
+		return false, fmt.Errorf("compute feature health: cycle detected at feature %s", f.ID)
+	}
+	inProgress[f.ID] = true
+
+	report, err := s.computeLocalFeatureHealth(f.ID)
+	if err != nil {
+		delete(inProgress, f.ID)
+		return false, err
+	}
+	degraded := report.Health == HealthDegraded
+	for _, e := range edges {
+		if e.Type != EdgeDependsOn || e.From != f.ID {
+			continue
+		}
+		childDegraded, err := s.computeDependsOnDegraded(e.To, edges, memo, inProgress)
+		if err != nil {
+			delete(inProgress, f.ID)
+			return false, err
+		}
+		if childDegraded {
+			degraded = true
+			break
+		}
+	}
+	delete(inProgress, f.ID)
+	memo[f.ID] = degraded
+	return degraded, nil
 }
 
 // computeLocalFeatureHealth computes health from a feature's own nodes only, no edge propagation.
@@ -192,17 +223,17 @@ func (s *Store) ComputeAllFeatureHealth() ([]*FeatureHealthReport, error) {
 	if err != nil {
 		return nil, err
 	}
+	edges, err := s.ListAllFeatureEdges()
+	if err != nil {
+		return nil, fmt.Errorf("compute all feature health: read feature edges: %w", err)
+	}
+	degradedMemo := make(map[string]bool)
+	degradedInProgress := make(map[string]bool)
 	reports := make([]*FeatureHealthReport, 0, len(features))
 	for _, f := range features {
-		r, rerr := s.ComputeFeatureHealth(f.ID)
-		if rerr != nil {
-			r = &FeatureHealthReport{
-				FeatureID:   f.ID,
-				FeatureName: f.Name,
-				Status:      f.Status,
-				Health:      HealthClean,
-				Issues:      []string{fmt.Sprintf("error computing health: %v", rerr)},
-			}
+		r, err := s.computeFeatureHealthWithDeps(f.ID, edges, degradedMemo, degradedInProgress)
+		if err != nil {
+			return nil, err
 		}
 		reports = append(reports, r)
 	}

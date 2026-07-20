@@ -1,6 +1,8 @@
 package retree
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -180,5 +182,96 @@ func TestCurrentNodeExplicitOverridesDerived(t *testing.T) {
 	}
 	if got.CurrentNodeMode != "explicit" {
 		t.Fatalf("expected explicit mode, got %s", got.CurrentNodeMode)
+	}
+}
+
+// TestDependsOnPropagatesDegradedTransitively verifies degraded health travels across dependency chains.
+func TestDependsOnPropagatesDegradedTransitively(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	bad := poisonedNode("bad impl")
+	mustNoErr(t, s.CreateNode(root))
+	mustNoErr(t, s.CreateNode(bad))
+
+	fC, err := s.CreateFeature("Dep C", root.ID)
+	mustNoErr(t, err)
+	mustNoErr(t, s.LinkNodeToFeature(fC.ID, bad.ID, RoleImplementation))
+	fB, err := s.CreateFeature("Dep B", root.ID)
+	mustNoErr(t, err)
+	mustNoErr(t, s.LinkNodeToFeature(fB.ID, root.ID, RoleImplementation))
+	fA, err := s.CreateFeature("Dep A", root.ID)
+	mustNoErr(t, err)
+	mustNoErr(t, s.LinkNodeToFeature(fA.ID, root.ID, RoleImplementation))
+	mustNoErr(t, s.RelateFeatures(fB.ID, fC.ID, EdgeDependsOn, root.ID))
+	mustNoErr(t, s.RelateFeatures(fA.ID, fB.ID, EdgeDependsOn, root.ID))
+
+	report, err := s.ComputeFeatureHealth(fA.ID)
+	mustNoErr(t, err)
+	if report.Health != HealthDegraded {
+		t.Fatalf("expected transitive degraded via depends_on, got %s", report.Health)
+	}
+}
+
+// TestCollaboratesWithDoesNotPropagateInfiniteWarnings verifies collaboration warnings stay direct.
+func TestCollaboratesWithDoesNotPropagateInfiniteWarnings(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	bad := poisonedNode("bad impl")
+	mustNoErr(t, s.CreateNode(root))
+	mustNoErr(t, s.CreateNode(bad))
+
+	fC, err := s.CreateFeature("C", root.ID)
+	mustNoErr(t, err)
+	mustNoErr(t, s.LinkNodeToFeature(fC.ID, bad.ID, RoleImplementation))
+	fB, err := s.CreateFeature("B", root.ID)
+	mustNoErr(t, err)
+	mustNoErr(t, s.LinkNodeToFeature(fB.ID, root.ID, RoleImplementation))
+	fA, err := s.CreateFeature("A", root.ID)
+	mustNoErr(t, err)
+	mustNoErr(t, s.LinkNodeToFeature(fA.ID, root.ID, RoleImplementation))
+	mustNoErr(t, s.RelateFeatures(fB.ID, fC.ID, EdgeCollaboratesWith, root.ID))
+	mustNoErr(t, s.RelateFeatures(fA.ID, fB.ID, EdgeCollaboratesWith, root.ID))
+
+	report, err := s.ComputeFeatureHealth(fA.ID)
+	mustNoErr(t, err)
+	if report.Health != HealthClean {
+		t.Fatalf("expected collaboration warning to stay direct, got %s", report.Health)
+	}
+}
+
+// TestComputeFeatureHealthDetectsCycleDefensively verifies corrupt edge cycles fail loudly.
+func TestComputeFeatureHealthDetectsCycleDefensively(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+
+	f1, err := s.CreateFeature("A", root.ID)
+	mustNoErr(t, err)
+	f2, err := s.CreateFeature("B", root.ID)
+	mustNoErr(t, err)
+
+	corrupt := fmt.Sprintf("{\"from\":\"%s\",\"to\":\"%s\",\"type\":\"depends_on\",\"created_from\":%d}\n{\"from\":\"%s\",\"to\":\"%s\",\"type\":\"depends_on\",\"created_from\":%d}\n",
+		f1.ID, f2.ID, root.ID, f2.ID, f1.ID, root.ID)
+	mustNoErr(t, os.WriteFile(s.featureEdgesPath(), []byte(corrupt), 0o644))
+
+	_, err = s.ComputeFeatureHealth(f1.ID)
+	if err == nil || !strings.Contains(err.Error(), "cycle detected") {
+		t.Fatalf("expected defensive cycle error, got %v", err)
+	}
+}
+
+// TestComputeFeatureHealthReturnsErrorOnCorruptEdges verifies malformed edge storage fails loudly.
+func TestComputeFeatureHealthReturnsErrorOnCorruptEdges(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+
+	f, err := s.CreateFeature("A", root.ID)
+	mustNoErr(t, err)
+	mustNoErr(t, os.WriteFile(s.featureEdgesPath(), []byte("{not-json}\n"), 0o644))
+
+	_, err = s.ComputeFeatureHealth(f.ID)
+	if err == nil || !strings.Contains(err.Error(), "read feature edges") {
+		t.Fatalf("expected corrupt edges error, got %v", err)
 	}
 }
