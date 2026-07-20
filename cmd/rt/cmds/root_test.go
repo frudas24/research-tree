@@ -1763,6 +1763,65 @@ func TestCLIFeatureUnrelateRejectsWithoutType(t *testing.T) {
 	}
 }
 
+// TestCLIFeatureTimeline verifies timeline output includes all linked nodes in order.
+func TestCLIFeatureTimeline(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "proposal")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "impl")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "Spike", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0001", "1", "--role", "proposal")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0001", "2", "--role", "implementation")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "timeline", "f0001")
+	if err != nil {
+		t.Fatalf("timeline: %v", err)
+	}
+	if !strings.Contains(out, "proposal") || !strings.Contains(out, "implementation") {
+		t.Fatalf("timeline missing roles: %s", out)
+	}
+}
+
+// TestCLIFeatureDoctorDegraded verifies doctor reports degraded when node is poisoned.
+func TestCLIFeatureDoctorDegraded(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "bad-impl")
+	_, _ = runCLI(t, "--research-root", root, "node", "poison", "1", "--by", "1", "--cause", "toolchain", "--reason", "bad data")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "Spike", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0001", "1", "--role", "implementation")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "doctor", "f0001")
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if !strings.Contains(out, "degraded") {
+		t.Fatalf("doctor should report degraded: %s", out)
+	}
+}
+
+// TestCLIFeatureDoctorUnmoored verifies doctor reports unmoored edges.
+func TestCLIFeatureDoctorUnmoored(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "n1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "A", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "B", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0001", "1", "--role", "implementation")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0002", "1", "--role", "implementation")
+	_, _ = runCLI(t, "--research-root", root, "feature", "relate", "f0001", "f0002", "--type", "depends_on", "--from-node", "1")
+	// Delete the node that anchors the edge
+	_, _ = runCLI(t, "--research-root", root, "node", "delete", "1", "--force")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "doctor", "f0001")
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if !strings.Contains(out, "unmoored") {
+		t.Fatalf("doctor should report unmoored: %s", out)
+	}
+}
+
 // TestCLICurrentNodeOnlyFromImplFixDecision verifies derived current_node ignores non-qualifying roles.
 func TestCLICurrentNodeOnlyFromImplFixDecision(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")

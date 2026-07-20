@@ -18,6 +18,8 @@ func newFeatureCmd(opts *RootOptions) *cobra.Command {
 	cmd.AddCommand(newFeatureRelateCmd(opts))
 	cmd.AddCommand(newFeatureUnrelateCmd(opts))
 	cmd.AddCommand(newFeatureEdgesCmd(opts))
+	cmd.AddCommand(newFeatureDoctorCmd(opts))
+	cmd.AddCommand(newFeatureTimelineCmd(opts))
 	return cmd
 }
 
@@ -253,6 +255,81 @@ func newFeatureEdgesCmd(opts *RootOptions) *cobra.Command {
 			var b strings.Builder
 			for _, e := range edges {
 				fmt.Fprintf(&b, "%s -[%s]-> %s  (from node %04d)\n", e.From, e.Type, e.To, e.CreatedFrom)
+			}
+			return printMaybeJSON(cmd, false, nil, b.String())
+		},
+	}
+	return cmd
+}
+
+// newFeatureDoctorCmd constructs the "feature doctor" subcommand.
+func newFeatureDoctorCmd(opts *RootOptions) *cobra.Command {
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "doctor [id|name]",
+		Short: "Audit feature health",
+		Long:  `Compute derived health for features, reporting poisoned nodes, unmoored edges, and propagation issues.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openStore(opts)
+			if err != nil {
+				return err
+			}
+			if all || len(args) == 0 {
+				reports, rerr := store.ComputeAllFeatureHealth()
+				if rerr != nil {
+					return rerr
+				}
+				if opts.OutputJSON {
+					return printMaybeJSON(cmd, true, reports, "")
+				}
+				if len(reports) == 0 {
+					return printMaybeJSON(cmd, false, nil, "(no features)")
+				}
+				var b strings.Builder
+				for _, r := range reports {
+					b.WriteString(r.DocLines())
+				}
+				return printMaybeJSON(cmd, false, nil, b.String())
+			}
+			report, rerr := store.ComputeFeatureHealth(args[0])
+			if rerr != nil {
+				return rerr
+			}
+			if opts.OutputJSON {
+				return printMaybeJSON(cmd, true, report, "")
+			}
+			return printMaybeJSON(cmd, false, nil, report.DocLines())
+		},
+	}
+	cmd.Flags().BoolVar(&all, "all", false, "Audit all features")
+	return cmd
+}
+
+// newFeatureTimelineCmd constructs the "feature timeline" subcommand.
+func newFeatureTimelineCmd(opts *RootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "timeline <id|name>",
+		Short: "Show feature timeline",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openStore(opts)
+			if err != nil {
+				return err
+			}
+			report, rerr := store.ComputeFeatureTimeline(args[0])
+			if rerr != nil {
+				return rerr
+			}
+			if opts.OutputJSON {
+				return printMaybeJSON(cmd, true, report, "")
+			}
+			if len(report.Timeline) == 0 {
+				return printMaybeJSON(cmd, false, nil, "(no timeline entries)")
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "%s %s\n", report.FeatureID, report.FeatureName)
+			for _, t := range report.Timeline {
+				fmt.Fprintf(&b, "  %04d %-16s %s [%s]\n", t.NodeID, t.Role, t.Title, t.Status)
 			}
 			return printMaybeJSON(cmd, false, nil, b.String())
 		},
