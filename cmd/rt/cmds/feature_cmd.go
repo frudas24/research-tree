@@ -15,6 +15,9 @@ func newFeatureCmd(opts *RootOptions) *cobra.Command {
 	cmd.AddCommand(newFeatureListCmd(opts))
 	cmd.AddCommand(newFeatureShowCmd(opts))
 	cmd.AddCommand(newFeatureLinkCmd(opts))
+	cmd.AddCommand(newFeatureRelateCmd(opts))
+	cmd.AddCommand(newFeatureUnrelateCmd(opts))
+	cmd.AddCommand(newFeatureEdgesCmd(opts))
 	return cmd
 }
 
@@ -160,5 +163,99 @@ func newFeatureLinkCmd(opts *RootOptions) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&role, "role", "implementation", "Node role within feature")
+	return cmd
+}
+
+// newFeatureRelateCmd constructs the "feature relate" subcommand.
+func newFeatureRelateCmd(opts *RootOptions) *cobra.Command {
+	var edgeType, fromNode string
+	cmd := &cobra.Command{
+		Use:   "relate <from> <to>",
+		Short: "Create a typed edge between features",
+		Long: `Create an operational relationship between two features.
+
+Edge types: depends_on, collaborates_with, supersedes.
+--from-node is required and must reference an existing RT node.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openStore(opts)
+			if err != nil {
+				return err
+			}
+			t := retree.FeatureEdgeType(strings.TrimSpace(edgeType))
+			nid, err := parseNodeID(fromNode)
+			if err != nil {
+				return fmt.Errorf("--from-node: %w", err)
+			}
+			if err := store.RelateFeatures(args[0], args[1], t, nid); err != nil {
+				return err
+			}
+			msg := fmt.Sprintf("related %s -[%s]-> %s", args[0], t, args[1])
+			return printMaybeJSON(cmd, opts.OutputJSON,
+				map[string]any{"from": args[0], "to": args[1], "type": t, "created_from": nid}, msg)
+		},
+	}
+	cmd.Flags().StringVar(&edgeType, "type", "", "Edge type (required)")
+	cmd.Flags().StringVar(&fromNode, "from-node", "", "RT node documenting this decision (required)")
+	_ = cmd.MarkFlagRequired("type")
+	_ = cmd.MarkFlagRequired("from-node")
+	return cmd
+}
+
+// newFeatureUnrelateCmd constructs the "feature unrelate" subcommand.
+func newFeatureUnrelateCmd(opts *RootOptions) *cobra.Command {
+	var edgeType string
+	cmd := &cobra.Command{
+		Use:   "unrelate <from> <to>",
+		Short: "Remove a typed edge between features",
+		Long:  `Remove a feature edge. --type is required to disambiguate.`,
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openStore(opts)
+			if err != nil {
+				return err
+			}
+			t := retree.FeatureEdgeType(strings.TrimSpace(edgeType))
+			if err := store.UnrelateFeatures(args[0], args[1], t); err != nil {
+				return err
+			}
+			msg := fmt.Sprintf("removed edge %s -[%s]-> %s", args[0], t, args[1])
+			return printMaybeJSON(cmd, opts.OutputJSON,
+				map[string]any{"from": args[0], "to": args[1], "type": t, "removed": true}, msg)
+		},
+	}
+	cmd.Flags().StringVar(&edgeType, "type", "", "Edge type (required)")
+	_ = cmd.MarkFlagRequired("type")
+	return cmd
+}
+
+// newFeatureEdgesCmd constructs the "feature edges" subcommand.
+func newFeatureEdgesCmd(opts *RootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "edges <id|name>",
+		Short: "List edges for a feature",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openStore(opts)
+			if err != nil {
+				return err
+			}
+			edges, err := store.ListFeatureEdges(args[0])
+			if err != nil {
+				return err
+			}
+			if opts.OutputJSON {
+				return printMaybeJSON(cmd, true, edges, "")
+			}
+			if len(edges) == 0 {
+				return printMaybeJSON(cmd, false, nil, "(no edges)")
+			}
+			var b strings.Builder
+			for _, e := range edges {
+				fmt.Fprintf(&b, "%s -[%s]-> %s  (from node %04d)\n", e.From, e.Type, e.To, e.CreatedFrom)
+			}
+			return printMaybeJSON(cmd, false, nil, b.String())
+		},
+	}
 	return cmd
 }

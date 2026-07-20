@@ -822,6 +822,139 @@ func TestNodeBelongsToMultipleFeatures(t *testing.T) {
 	}
 }
 
+// TestFeatureEdgeCRUD verifies create, list, and delete of feature edges.
+func TestFeatureEdgeCRUD(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, err := s.CreateFeature("RL", root.ID)
+	mustNoErr(t, err)
+	f2, err := s.CreateFeature("HFB", root.ID)
+	mustNoErr(t, err)
+
+	// Create edge
+	mustNoErr(t, s.RelateFeatures(f2.ID, f1.ID, EdgeCollaboratesWith, root.ID))
+	edges, err := s.ListFeatureEdges(f1.ID)
+	mustNoErr(t, err)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].Type != EdgeCollaboratesWith {
+		t.Fatalf("expected collaborates_with, got %s", edges[0].Type)
+	}
+
+	// Remove edge
+	mustNoErr(t, s.UnrelateFeatures(f2.ID, f1.ID, EdgeCollaboratesWith))
+	edges, err = s.ListFeatureEdges(f1.ID)
+	mustNoErr(t, err)
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges after unrelate, got %d", len(edges))
+	}
+}
+
+// TestFeatureEdgeRequiresCreatedFrom verifies created_from is validated.
+func TestFeatureEdgeRequiresCreatedFrom(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+	f2, _ := s.CreateFeature("B", root.ID)
+
+	err := s.RelateFeatures(f1.ID, f2.ID, EdgeDependsOn, 999)
+	if err == nil {
+		t.Fatal("expected error for non-existent created_from node")
+	}
+}
+
+// TestFeatureEdgeRejectsInvalidType verifies unknown edge types are rejected.
+func TestFeatureEdgeRejectsInvalidType(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+	f2, _ := s.CreateFeature("B", root.ID)
+
+	err := s.RelateFeatures(f1.ID, f2.ID, FeatureEdgeType("related_to"), root.ID)
+	if err == nil {
+		t.Fatal("expected error for invalid edge type")
+	}
+}
+
+// TestFeatureEdgeUnrelateRequiresType verifies unrelate requires the edge type.
+func TestFeatureEdgeUnrelateRequiresType(t *testing.T) {
+	// The type is a parameter of UnrelateFeatures, so this is a compile-time contract.
+	// Runtime test: unrelating a non-existent edge type returns an error.
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+	f2, _ := s.CreateFeature("B", root.ID)
+
+	err := s.UnrelateFeatures(f1.ID, f2.ID, EdgeDependsOn)
+	if err == nil {
+		t.Fatal("expected error for unrelating non-existent edge")
+	}
+}
+
+// TestFeatureEdgeCreatedFromMustReferenceExistingNode verifies created_from validation.
+func TestFeatureEdgeCreatedFromMustReferenceExistingNode(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+	f2, _ := s.CreateFeature("B", root.ID)
+
+	err := s.RelateFeatures(f1.ID, f2.ID, EdgeDependsOn, 0)
+	if err == nil {
+		t.Fatal("expected error for created_from=0")
+	}
+}
+
+// TestFeatureEdgeRejectsDuplicate verifies duplicate edges are rejected.
+func TestFeatureEdgeRejectsDuplicate(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+	f2, _ := s.CreateFeature("B", root.ID)
+
+	mustNoErr(t, s.RelateFeatures(f1.ID, f2.ID, EdgeDependsOn, root.ID))
+	err := s.RelateFeatures(f1.ID, f2.ID, EdgeDependsOn, root.ID)
+	if err == nil {
+		t.Fatal("expected error for duplicate edge")
+	}
+}
+
+// TestFeatureDependsOnRejectsCycle verifies depends_on cycles are rejected.
+func TestFeatureDependsOnRejectsCycle(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+	f2, _ := s.CreateFeature("B", root.ID)
+
+	mustNoErr(t, s.RelateFeatures(f1.ID, f2.ID, EdgeDependsOn, root.ID))
+	err := s.RelateFeatures(f2.ID, f1.ID, EdgeDependsOn, root.ID)
+	if err == nil {
+		t.Fatal("expected cycle error for depends_on A->B then B->A")
+	}
+}
+
+// TestFeatureSupersedesRejectsCycle verifies supersedes cycles are rejected.
+func TestFeatureSupersedesRejectsCycle(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+	f2, _ := s.CreateFeature("B", root.ID)
+
+	mustNoErr(t, s.RelateFeatures(f1.ID, f2.ID, EdgeSupersedes, root.ID))
+	err := s.RelateFeatures(f2.ID, f1.ID, EdgeSupersedes, root.ID)
+	if err == nil {
+		t.Fatal("expected cycle error for supersedes A->B then B->A")
+	}
+}
+
 // TestOpenBackfillsMissingFeaturesLayout verifies legacy stores gain features.json on open.
 func TestOpenBackfillsMissingFeaturesLayout(t *testing.T) {
 	s := mustInit(t, StorageJSON)

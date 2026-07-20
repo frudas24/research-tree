@@ -1697,6 +1697,72 @@ func TestCLIFeatureShowDerivedCurrentNode(t *testing.T) {
 	}
 }
 
+// TestCLIFeatureRelateUnrelate verifies feature relate and unrelate via CLI.
+func TestCLIFeatureRelateUnrelate(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "decision-node")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "RL", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "HFB", "--from-node", "1")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "relate", "f0002", "f0001",
+		"--type", "collaborates_with", "--from-node", "1")
+	if err != nil {
+		t.Fatalf("relate: %v", err)
+	}
+	if !strings.Contains(out, "related") {
+		t.Fatalf("unexpected: %s", out)
+	}
+
+	// Check edges
+	out, err = runCLI(t, "--research-root", root, "feature", "edges", "f0001")
+	if err != nil {
+		t.Fatalf("edges: %v", err)
+	}
+	if !strings.Contains(out, "collaborates_with") {
+		t.Fatalf("edges missing relation: %s", out)
+	}
+
+	// Unrelate
+	out, err = runCLI(t, "--research-root", root, "feature", "unrelate", "f0002", "f0001",
+		"--type", "collaborates_with")
+	if err != nil {
+		t.Fatalf("unrelate: %v", err)
+	}
+	if !strings.Contains(out, "removed") {
+		t.Fatalf("unexpected: %s", out)
+	}
+}
+
+// TestCLIFeatureRelateRejectsMissingFromNode verifies relate rejects invalid created_from.
+func TestCLIFeatureRelateRejectsMissingFromNode(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "only-node")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "RL", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "HFB", "--from-node", "1")
+
+	_, err := runCLI(t, "--research-root", root, "feature", "relate", "f0001", "f0002",
+		"--type", "depends_on", "--from-node", "999")
+	if err == nil {
+		t.Fatal("expected error for non-existent from-node")
+	}
+}
+
+// TestCLIFeatureUnrelateRejectsWithoutType verifies unrelate requires --type.
+func TestCLIFeatureUnrelateRejectsWithoutType(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "n")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "A", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "B", "--from-node", "1")
+
+	_, err := runCLI(t, "--research-root", root, "feature", "unrelate", "f0001", "f0002")
+	if err == nil {
+		t.Fatal("expected error for unrelate without --type")
+	}
+}
+
 // TestCLICurrentNodeOnlyFromImplFixDecision verifies derived current_node ignores non-qualifying roles.
 func TestCLICurrentNodeOnlyFromImplFixDecision(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")

@@ -1,7 +1,9 @@
 package retree
 
 import (
+	"bufio"
 	"encoding/json"
+	"slices"
 	"fmt"
 	"os"
 	"regexp"
@@ -19,18 +21,11 @@ func Slugify(name string) string {
 	return s
 }
 
-// nextFeatureID reads and bumps the next_id counter in features.json.
-func (s *Store) nextFeatureID() (string, error) {
-	payload, err := s.loadFeaturePayload()
-	if err != nil {
-		return "", err
-	}
+// nextFeatureID reads and bumps the next_id counter. Caller must save the payload.
+func (s *Store) nextFeatureID(payload *featurePayload) string {
 	id := payload.NextID
 	payload.NextID++
-	if err := s.saveFeaturePayload(payload); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("f%04d", id), nil
+	return fmt.Sprintf("f%04d", id)
 }
 
 // featurePayload is the top-level structure of features.json.
@@ -110,10 +105,7 @@ func (s *Store) createFeature(name string, createdFrom NodeID) (*Feature, error)
 				return &FeatureError{msg: fmt.Sprintf("feature slug %q already exists", slug)}
 			}
 		}
-		id, ierr := s.nextFeatureID()
-		if ierr != nil {
-			return ierr
-		}
+		id := s.nextFeatureID(payload)
 		f := &Feature{
 			ID:          id,
 			Name:        strings.TrimSpace(name),
@@ -265,4 +257,192 @@ func (s *Store) SetFeatureCurrentNode(featureSpec string, nodeID NodeID) error {
 func (s *Store) FeatureExists(spec string) bool {
 	_, err := s.resolveFeatureID(spec)
 	return err == nil
+}
+
+// ── Feature Edges ───────────────────────────────────────────────────────────
+
+// saveFeatureEdges writes feature_edges.jsonl atomically.
+func (s *Store) saveFeatureEdges(edges []FeatureEdge) error {
+	var b strings.Builder
+	for _, e := range edges {
+		line, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	tmp := s.featureEdgesPath() + ".tmp"
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.featureEdgesPath())
+}
+
+// loadFeatureEdges reads all edges from feature_edges.jsonl.
+func (s *Store) loadFeatureEdges() ([]FeatureEdge, error) {
+	f, err := os.Open(s.featureEdgesPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	var out []FeatureEdge
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var e FeatureEdge
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, sc.Err()
+}
+
+// RelateFeatures creates a typed edge between two features.
+// createdFrom must reference an existing RT node.
+// Duplicate edges (same from, to, type) are rejected.
+// depends_on and supersedes cycles are rejected.
+func (s *Store) RelateFeatures(fromSpec, toSpec string, edgeType FeatureEdgeType, createdFrom NodeID) error {
+	fidFrom, err := s.resolveFeatureID(fromSpec)
+	if err != nil {
+		return fmt.Errorf("from: %w", err)
+	}
+	fidTo, err := s.resolveFeatureID(toSpec)
+	if err != nil {
+		return fmt.Errorf("to: %w", err)
+	}
+	if fidFrom == fidTo {
+		return &FeatureError{msg: "cannot relate feature to itself"}
+	}
+	if _, err := s.GetNode(createdFrom); err != nil {
+		return fmt.Errorf("created_from node %d: %w", createdFrom, ErrNotFound)
+	}
+	if !slices.Contains(validFeatureEdgeTypes, edgeType) {
+		return &FeatureError{msg: "unknown edge type: " + string(edgeType)}
+	}
+	return s.withLock("relate_features", func() error {
+		edges, err := s.loadFeatureEdges()
+		if err != nil {
+			return err
+		}
+		// Check duplicate
+		for _, e := range edges {
+			if e.From == fidFrom && e.To == fidTo && e.Type == edgeType {
+				return &FeatureError{msg: fmt.Sprintf("edge %s->%s %s already exists", fidFrom, fidTo, edgeType)}
+			}
+		}
+		// Cycle detection for depends_on and supersedes
+		if edgeType == EdgeDependsOn || edgeType == EdgeSupersedes {
+			edges = append(edges, FeatureEdge{From: fidFrom, To: fidTo, Type: edgeType, CreatedFrom: createdFrom})
+			if hasFeatureCycle(edges, fidFrom, fidTo, edgeType) {
+				return &FeatureError{msg: fmt.Sprintf("cycle detected: %s->%s %s", fidFrom, fidTo, edgeType)}
+			}
+			edges = edges[:len(edges)-1]
+		}
+		edges = append(edges, FeatureEdge{From: fidFrom, To: fidTo, Type: edgeType, CreatedFrom: createdFrom})
+		return s.saveFeatureEdges(edges)
+	})
+}
+
+// hasFeatureCycle checks whether adding edge from→to of the given type creates a cycle.
+// Only checks depends_on and supersedes (not collaborates_with).
+func hasFeatureCycle(edges []FeatureEdge, from, to string, edgeType FeatureEdgeType) bool {
+	// Build adjacency: node → reachable via depends_on or supersedes
+	graph := make(map[string][]string)
+	for _, e := range edges {
+		if e.Type == EdgeDependsOn || e.Type == EdgeSupersedes {
+			graph[e.From] = append(graph[e.From], e.To)
+		}
+	}
+	// DFS from `to` → if we can reach `from`, adding from→to creates a cycle
+	visited := make(map[string]bool)
+	var dfs func(n string) bool
+	dfs = func(n string) bool {
+		if n == from {
+			return true
+		}
+		if visited[n] {
+			return false
+		}
+		visited[n] = true
+		for _, next := range graph[n] {
+			if dfs(next) {
+				return true
+			}
+		}
+		return false
+	}
+	return dfs(to)
+}
+
+// UnrelateFeatures removes the edge with the given type between two features.
+// The edge type is required to disambiguate when multiple edges exist.
+func (s *Store) UnrelateFeatures(fromSpec, toSpec string, edgeType FeatureEdgeType) error {
+	fidFrom, err := s.resolveFeatureID(fromSpec)
+	if err != nil {
+		return fmt.Errorf("from: %w", err)
+	}
+	fidTo, err := s.resolveFeatureID(toSpec)
+	if err != nil {
+		return fmt.Errorf("to: %w", err)
+	}
+	return s.withLock("unrelate_features", func() error {
+		edges, err := s.loadFeatureEdges()
+		if err != nil {
+			return err
+		}
+		found := false
+		filtered := make([]FeatureEdge, 0, len(edges))
+		for _, e := range edges {
+			if e.From == fidFrom && e.To == fidTo && e.Type == edgeType {
+				found = true
+				continue
+			}
+			filtered = append(filtered, e)
+		}
+		if !found {
+			return &FeatureError{msg: fmt.Sprintf("edge %s->%s %s not found", fidFrom, fidTo, edgeType)}
+		}
+		return s.saveFeatureEdges(filtered)
+	})
+}
+
+// ListFeatureEdges returns all edges for a feature (both incoming and outgoing).
+func (s *Store) ListFeatureEdges(featureSpec string) ([]FeatureEdge, error) {
+	fid, err := s.resolveFeatureID(featureSpec)
+	if err != nil {
+		return nil, err
+	}
+	edges, err := s.loadFeatureEdges()
+	if err != nil {
+		return nil, err
+	}
+	var out []FeatureEdge
+	for _, e := range edges {
+		if e.From == fid || e.To == fid {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Type != out[j].Type {
+			return string(out[i].Type) < string(out[j].Type)
+		}
+		if out[i].From != out[j].From {
+			return out[i].From < out[j].From
+		}
+		return out[i].To < out[j].To
+	})
+	return out, nil
+}
+
+// ListAllFeatureEdges returns every feature edge.
+func (s *Store) ListAllFeatureEdges() ([]FeatureEdge, error) {
+	return s.loadFeatureEdges()
 }
