@@ -20,6 +20,8 @@ func newFeatureCmd(opts *RootOptions) *cobra.Command {
 	cmd.AddCommand(newFeatureEdgesCmd(opts))
 	cmd.AddCommand(newFeatureDoctorCmd(opts))
 	cmd.AddCommand(newFeatureTimelineCmd(opts))
+	cmd.AddCommand(newFeatureImpactCmd(opts))
+	cmd.AddCommand(newFeatureGraphCmd(opts))
 	return cmd
 }
 
@@ -302,6 +304,78 @@ func newFeatureDoctorCmd(opts *RootOptions) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "Audit all features")
+	return cmd
+}
+
+// newFeatureImpactCmd constructs the "feature impact" subcommand.
+func newFeatureImpactCmd(opts *RootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "impact <id|name>",
+		Short: "Show what depends on this feature",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openStore(opts)
+			if err != nil {
+				return err
+			}
+			impact, ierr := store.ComputeFeatureImpact(args[0])
+			if ierr != nil {
+				return ierr
+			}
+			if opts.OutputJSON {
+				return printMaybeJSON(cmd, true, impact, "")
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "%s %s\n", impact.FeatureID, impact.FeatureName)
+			if len(impact.DependsOnUs) > 0 {
+				fmt.Fprintf(&b, "  depends on us: %s\n", strings.Join(impact.DependsOnUs, ", "))
+			}
+			if len(impact.Collaborates) > 0 {
+				fmt.Fprintf(&b, "  collaborates:  %s\n", strings.Join(impact.Collaborates, ", "))
+			}
+			if len(impact.WeDependOn) > 0 {
+				fmt.Fprintf(&b, "  we depend on:  %s\n", strings.Join(impact.WeDependOn, ", "))
+			}
+			if len(impact.DependsOnUs)+len(impact.Collaborates)+len(impact.WeDependOn) == 0 {
+				fmt.Fprintf(&b, "  (no impact edges)\n")
+			}
+			return printMaybeJSON(cmd, false, nil, b.String())
+		},
+	}
+	return cmd
+}
+
+// newFeatureGraphCmd constructs the "feature graph" subcommand.
+func newFeatureGraphCmd(opts *RootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "graph <id|name>",
+		Short: "Show the subgraph around a feature",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openStore(opts)
+			if err != nil {
+				return err
+			}
+			graph, gerr := store.ComputeFeatureGraph(args[0])
+			if gerr != nil {
+				return gerr
+			}
+			if opts.OutputJSON {
+				return printMaybeJSON(cmd, true, graph, "")
+			}
+			var b strings.Builder
+			for _, n := range graph.Nodes {
+				fmt.Fprintf(&b, "%s %s [%s]\n", n.ID, n.Name, n.Status)
+			}
+			if len(graph.Edges) > 0 {
+				b.WriteString("\n")
+				for _, e := range graph.Edges {
+					fmt.Fprintf(&b, "%s -[%s]-> %s\n", e.From, e.Type, e.To)
+				}
+			}
+			return printMaybeJSON(cmd, false, nil, b.String())
+		},
+	}
 	return cmd
 }
 

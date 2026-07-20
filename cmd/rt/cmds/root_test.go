@@ -1822,6 +1822,69 @@ func TestCLIFeatureDoctorUnmoored(t *testing.T) {
 	}
 }
 
+// TestCLIFeatureImpactDependsChain verifies impact shows depends_on relationships.
+func TestCLIFeatureImpactDependsChain(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "n1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "A", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "B", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "relate", "f0002", "f0001", "--type", "depends_on", "--from-node", "1")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "impact", "f0001")
+	if err != nil {
+		t.Fatalf("impact: %v", err)
+	}
+	if !strings.Contains(out, "depends on us") || !strings.Contains(out, "f0002") {
+		t.Fatalf("impact should show f0002 depends on f0001: %s", out)
+	}
+}
+
+// TestCLIFeatureImpactCollaboratesOnlyWarns verifies collaborates shows separately.
+func TestCLIFeatureImpactCollaboratesOnlyWarns(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "n1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "A", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "B", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "relate", "f0001", "f0002", "--type", "collaborates_with", "--from-node", "1")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "impact", "f0001")
+	if err != nil {
+		t.Fatalf("impact: %v", err)
+	}
+	if !strings.Contains(out, "collaborates") || !strings.Contains(out, "f0002") {
+		t.Fatalf("impact should show collaborates: %s", out)
+	}
+}
+
+// TestCLIFeatureGraphContainsEdges verifies graph output includes edges.
+func TestCLIFeatureGraphContainsEdges(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "n1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "A", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "B", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "relate", "f0001", "f0002", "--type", "depends_on", "--from-node", "1")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "graph", "f0001")
+	if err != nil {
+		t.Fatalf("graph: %v", err)
+	}
+	if !strings.Contains(out, "depends_on") || !strings.Contains(out, "f0002") {
+		t.Fatalf("graph missing edge: %s", out)
+	}
+
+	// JSON
+	out, err = runCLI(t, "--research-root", root, "--json", "feature", "graph", "f0001")
+	if err != nil {
+		t.Fatalf("graph json: %v", err)
+	}
+	if !strings.Contains(out, `"edges"`) || !strings.Contains(out, `"nodes"`) {
+		t.Fatalf("graph json missing structure: %s", out)
+	}
+}
+
 // TestCLICurrentNodeOnlyFromImplFixDecision verifies derived current_node ignores non-qualifying roles.
 func TestCLICurrentNodeOnlyFromImplFixDecision(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")

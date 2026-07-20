@@ -446,3 +446,127 @@ func (s *Store) ListFeatureEdges(featureSpec string) ([]FeatureEdge, error) {
 func (s *Store) ListAllFeatureEdges() ([]FeatureEdge, error) {
 	return s.loadFeatureEdges()
 }
+
+// ── Impact & Graph ─────────────────────────────────────────────────────────
+
+// FeatureImpact reports what depends on or collaborates with a feature.
+type FeatureImpact struct {
+	FeatureID    string          `json:"feature_id"`
+	FeatureName  string          `json:"feature_name"`
+	DependsOnUs  []string        `json:"depends_on_us"`
+	Collaborates []string        `json:"collaborates_with_us"`
+	WeDependOn   []string        `json:"we_depend_on"`
+}
+
+// ComputeFeatureImpact analyzes what other features depend on or collaborate with this one.
+func (s *Store) ComputeFeatureImpact(spec string) (*FeatureImpact, error) {
+	f, err := s.GetFeature(spec)
+	if err != nil {
+		return nil, err
+	}
+	edges, err := s.ListAllFeatureEdges()
+	if err != nil {
+		return nil, err
+	}
+	impact := &FeatureImpact{
+		FeatureID:   f.ID,
+		FeatureName: f.Name,
+	}
+	for _, e := range edges {
+		switch e.Type {
+		case EdgeDependsOn:
+			if e.To == f.ID {
+				impact.DependsOnUs = append(impact.DependsOnUs, e.From)
+			}
+			if e.From == f.ID {
+				impact.WeDependOn = append(impact.WeDependOn, e.To)
+			}
+		case EdgeCollaboratesWith:
+			if e.From == f.ID {
+				impact.Collaborates = append(impact.Collaborates, e.To)
+			} else if e.To == f.ID {
+				impact.Collaborates = append(impact.Collaborates, e.From)
+			}
+		}
+	}
+	sort.Strings(impact.DependsOnUs)
+	sort.Strings(impact.Collaborates)
+	sort.Strings(impact.WeDependOn)
+	return impact, nil
+}
+
+// FeatureGraph is a subgraph of features connected by edges.
+type FeatureGraph struct {
+	Nodes []FeatureGraphNode `json:"nodes"`
+	Edges []FeatureGraphEdge `json:"edges"`
+}
+
+// FeatureGraphNode is a node in a feature subgraph.
+type FeatureGraphNode struct {
+	ID     string        `json:"id"`
+	Name   string        `json:"name"`
+	Status FeatureStatus `json:"status"`
+}
+
+// FeatureGraphEdge is an edge in a feature subgraph.
+type FeatureGraphEdge struct {
+	From string         `json:"from"`
+	To   string         `json:"to"`
+	Type FeatureEdgeType `json:"type"`
+}
+
+// ComputeFeatureGraph builds the immediate subgraph around a feature.
+func (s *Store) ComputeFeatureGraph(spec string) (*FeatureGraph, error) {
+	f, err := s.GetFeature(spec)
+	if err != nil {
+		return nil, err
+	}
+	edges, err := s.ListAllFeatureEdges()
+	if err != nil {
+		return nil, err
+	}
+
+	nodeSet := map[string]bool{f.ID: true}
+	var graphEdges []FeatureGraphEdge
+
+	for _, e := range edges {
+		if e.From == f.ID || e.To == f.ID {
+			nodeSet[e.From] = true
+			nodeSet[e.To] = true
+			graphEdges = append(graphEdges, FeatureGraphEdge{
+				From: e.From, To: e.To, Type: e.Type,
+			})
+		}
+	}
+
+	features, err := s.ListFeatures()
+	if err != nil {
+		return nil, err
+	}
+	nameMap := make(map[string]string, len(features))
+	for _, feat := range features {
+		nameMap[feat.ID] = feat.Name
+	}
+
+	var nodes []FeatureGraphNode
+	for id := range nodeSet {
+		name := nameMap[id]
+		status := FeatureActive
+		for _, feat := range features {
+			if feat.ID == id {
+				status = feat.Status
+				break
+			}
+		}
+		nodes = append(nodes, FeatureGraphNode{ID: id, Name: name, Status: status})
+	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
+	sort.Slice(graphEdges, func(i, j int) bool {
+		if graphEdges[i].Type != graphEdges[j].Type {
+			return string(graphEdges[i].Type) < string(graphEdges[j].Type)
+		}
+		return graphEdges[i].From < graphEdges[j].From
+	})
+
+	return &FeatureGraph{Nodes: nodes, Edges: graphEdges}, nil
+}
