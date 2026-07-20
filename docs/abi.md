@@ -333,7 +333,9 @@ type FeatureEdge struct {
 
 `current_node` is derived from the latest linked node with role
 `implementation`, `fix`, or `decision`. Set explicitly with
-`SetFeatureCurrentNode` to override.
+`SetFeatureCurrentNode` to override. Once explicit, subsequent
+`LinkNodeToFeature` calls preserve that explicit selection instead of
+re-deriving it.
 
 ### Feature edge rules
 
@@ -342,6 +344,8 @@ type FeatureEdge struct {
 - Duplicate edges (same from, to, type) are rejected.
 - `created_from` must reference an existing RT node.
 - If the `created_from` node disappears, the edge is marked `unmoored`.
+- If edge storage cannot be read, `ComputeFeatureHealth` and
+  `ComputeAllFeatureHealth` return an error instead of a partial report.
 
 ### Derived health
 
@@ -351,8 +355,8 @@ type FeatureEdge struct {
 |-----------|--------|
 | impl/fix/decision/regression node poisoned | `degraded` |
 | benchmark/experiment node poisoned | `warning` |
-| `depends_on` degraded feature | `degraded` |
-| `collaborates_with` degraded feature | `warning` |
+| transitively `depends_on` degraded feature | `degraded` |
+| directly `collaborates_with` degraded feature | `warning` |
 | Edge `created_from` node missing | `unmoored` |
 | Superseded by another feature | retirement candidate |
 | No issues | `clean` |

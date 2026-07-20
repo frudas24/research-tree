@@ -583,7 +583,8 @@ Nodes can belong to multiple features. Roles: `proposal`, `implementation`,
 `experiment`, `benchmark`, `regression`, `fix`, `decision`, `documentation`.
 
 `current_node` is derived from the latest linked node with role
-`implementation`, `fix`, or `decision`. Use `--feature` and
+`implementation`, `fix`, or `decision`. If it was set explicitly, later
+feature links do not overwrite it. Use `--feature` and
 `--feature-role` on `rt node create` to link at creation time:
 
 ```bash
@@ -594,10 +595,10 @@ rt node create --title "RL bridge" --feature "RL Bridge" --create-feature --feat
 ### `rt feature relate`
 
 ```bash
-rt feature relate f0002 f0001 depends_on --from-node 0058
-rt feature relate f0003 f0001 collaborates_with --from-node 0062
-rt feature relate f0008 f0001 supersedes --from-node 0074
-rt feature unrelate f0002 f0001 depends_on
+rt feature relate f0002 f0001 --type depends_on --from-node 0058
+rt feature relate f0003 f0001 --type collaborates_with --from-node 0062
+rt feature relate f0008 f0001 --type supersedes --from-node 0074
+rt feature unrelate f0002 f0001 --type depends_on
 rt feature edges f0001
 rt feature edges f0001 --json
 ```
@@ -623,12 +624,15 @@ Computes `derived_health` at read time (never persisted):
 |-----------|--------|
 | Linked node impl/fix/decision/regression poisoned | `degraded` |
 | Linked node benchmark/experiment poisoned | `warning` |
-| `depends_on` a degraded feature | `degraded` |
-| `collaborates_with` a degraded feature | `warning` |
+| transitively `depends_on` a degraded feature | `degraded` |
+| directly `collaborates_with` a degraded feature | `warning` |
 | Edge with missing `created_from` node | `unmoored` |
 | Superseded by another feature | retirement candidate reported |
 
 Severity order: `degraded > unmoored > warning > clean`.
+
+If RT cannot read `feature_edges.jsonl` cleanly, `rt feature doctor` returns an
+error instead of a partial health report.
 
 ### `rt feature impact`
 
@@ -651,8 +655,8 @@ Shows the immediate subgraph (nodes + edges) around a feature.
 
 ### Feature status
 
-`active | degraded | retired` — set by the maintainer via
-`rt feature show` / `store.SetFeatureStatus`. `derived_health` is
+`active | degraded | retired` — set by the maintainer via Store/API helpers.
+`derived_health` is
 evidence-based and computed, not manual.
 
 Feature slugs are unique. Lookup accepts ID (`f0001`), slug, or name.

@@ -140,6 +140,9 @@ links to a baseline without polluting the parent lineage. No information is dest
   external tooling. Designed to be embedded.
 - **Typed relations.** Beyond parent-child: `compares_against`, `inspired_by`,
   `depends_on`, and `aggregates` keep the DAG clean without abusing `--parents`.
+- **Feature lineage.** Features group many nodes into one living project entity,
+  with explicit cross-feature edges, evidence-based health, impact queries, and
+  graph views.
 - **Evidence hygiene.** Mark nodes as `poisoned` when evidence becomes unreliable,
   `revalidate` when trust is restored. `rt doctor evidence` traces contamination.
 - **Structural diagnostics.** `rt lint` audits hygiene; `rt doctor lineage`
@@ -235,7 +238,38 @@ rt links --type compares_against      # filter by relation type
 rt lint                               # audit: parent fan-in, orphans, isolates
 rt doctor lineage                     # structural parent issues, poisoned ancestors
 rt doctor evidence                    # trace evidence contamination
+
+# Feature lineage
+rt feature create "RL Bridge" --from-node 7
+rt feature link f0001 47 --role implementation
+rt feature relate f0002 f0001 --type depends_on --from-node 58
+rt feature doctor f0001
+rt feature impact f0001
+rt feature graph f0001
 ```
+
+### Feature lineage
+
+Feature lineage adds a second layer above the research DAG:
+
+- Nodes capture events and evidence.
+- Features capture what is alive right now.
+- Feature edges capture operational coupling between living entities.
+
+`current_node` is derived from the latest linked `implementation`, `fix`, or
+`decision` node unless it was set explicitly. Once `CurrentNodeMode` is
+`explicit`, later links do not overwrite it.
+
+`rt feature doctor` computes health at read time:
+
+- poisoned `implementation|fix|decision|regression` node → `degraded`
+- poisoned `benchmark|experiment` node → `warning`
+- transitive `depends_on` chain to a degraded feature → `degraded`
+- direct `collaborates_with` link to a degraded feature → `warning`
+- missing `created_from` edge anchor → `unmoored`
+
+If `feature_edges.jsonl` cannot be read or is corrupt, `rt feature doctor`
+fails loudly instead of returning a partial clean report.
 
 ### Golden milestones
 

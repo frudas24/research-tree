@@ -226,16 +226,16 @@ related RT nodes and track the lifecycle of what is alive in the project.
 | Health | Meaning |
 |--------|---------|
 | `clean` | No issues detected |
-| `warning` | Collaborator degraded or benchmark poisoned |
-| `degraded` | Implementation poisoned or depends_on degraded |
+| `warning` | Direct collaborator degraded or benchmark/experiment poisoned |
+| `degraded` | Implementation poisoned or transitively depends_on degraded |
 | `unmoored` | Edge has lost its evidence anchor |
 
 ### Edge types
 
 | Type | Cycle | Propagation |
 |------|-------|-------------|
-| `depends_on` | Rejected | Degraded propagates |
-| `collaborates_with` | Allowed | Warning only |
+| `depends_on` | Rejected | Degraded propagates transitively |
+| `collaborates_with` | Allowed | Warning only, direct neighbor only |
 | `supersedes` | Rejected | Reports retirement candidate |
 
 ### Node roles within a feature
@@ -243,3 +243,4 @@ related RT nodes and track the lifecycle of what is alive in the project.
 `proposal | implementation | experiment | benchmark | regression | fix | decision | documentation`
 
 Only `implementation`, `fix`, and `decision` affect `current_node` derivation.
+If `current_node_mode` is `explicit`, later node links do not overwrite it.
