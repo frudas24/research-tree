@@ -36,6 +36,9 @@ func openStore(rootPath string) (*Store, error) {
 	if err := s.ensureRelationsLayout(); err != nil {
 		return nil, err
 	}
+	if err := s.ensureFeaturesLayout(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -82,6 +85,12 @@ func initStore(rootPath string, format StorageFormat) (*Store, error) {
 		return nil, err
 	}
 	if err := os.WriteFile(s.resourceEventsPath(), nil, 0o644); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(s.featuresPath(), []byte("{\"next_id\":1}\n"), 0o644); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(s.featureEdgesPath(), nil, 0o644); err != nil {
 		return nil, err
 	}
 	if format == StorageBIN {
@@ -167,6 +176,23 @@ func (s *Store) ensureRelationsLayout() error {
 		return err
 	}
 	return os.WriteFile(s.relationsPath(), nil, 0o644)
+}
+
+// ensureFeaturesLayout backfills features.json and feature_edges.jsonl for
+// stores created before the feature lineage system existed.
+func (s *Store) ensureFeaturesLayout() error {
+	if _, err := os.Stat(s.featuresPath()); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.WriteFile(s.featuresPath(), []byte("{\"next_id\":1}\n"), 0o644); err != nil {
+		return err
+	}
+	if _, err := os.Stat(s.featureEdgesPath()); os.IsNotExist(err) {
+		return os.WriteFile(s.featureEdgesPath(), nil, 0o644)
+	}
+	return nil
 }
 
 // readMeta reads and parses meta.json.

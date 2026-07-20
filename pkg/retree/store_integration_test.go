@@ -691,3 +691,148 @@ func TestBinaryModeNoNodesDir(t *testing.T) {
 		t.Fatal("roundtrip failed")
 	}
 }
+
+// TestFeatureCRUD verifies create, get, and list for features.
+func TestFeatureCRUD(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+
+	f, err := s.CreateFeature("RL Bridge", root.ID)
+	if err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+	if f.ID != "f0001" {
+		t.Fatalf("expected f0001, got %s", f.ID)
+	}
+	if f.Slug != "rl-bridge" {
+		t.Fatalf("expected slug rl-bridge, got %s", f.Slug)
+	}
+	if f.Status != FeatureActive {
+		t.Fatalf("expected status active, got %s", f.Status)
+	}
+
+	// Get by id
+	got, err := s.GetFeature("f0001")
+	if err != nil {
+		t.Fatalf("get by id: %v", err)
+	}
+	if got.Name != "RL Bridge" {
+		t.Fatalf("name mismatch: %s", got.Name)
+	}
+
+	// Get by slug
+	got2, err := s.GetFeature("rl-bridge")
+	if err != nil {
+		t.Fatalf("get by slug: %v", err)
+	}
+	if got2.ID != "f0001" {
+		t.Fatalf("id mismatch: %s", got2.ID)
+	}
+
+	// List
+	list, err := s.ListFeatures()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 feature, got %d", len(list))
+	}
+
+	// Duplicate slug rejected
+	_, err = s.CreateFeature("RL  Bridge", root.ID)
+	if err == nil {
+		t.Fatal("expected duplicate slug error")
+	}
+}
+
+// TestLinkNodeToFeature verifies linking and unlinking.
+func TestLinkNodeToFeature(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	child := &Node{Frontmatter: Frontmatter{Title: "child"}}
+	mustNoErr(t, s.CreateNode(root))
+	mustNoErr(t, s.CreateNode(child))
+
+	f, err := s.CreateFeature("Spike", root.ID)
+	mustNoErr(t, err)
+
+	mustNoErr(t, s.LinkNodeToFeature(f.ID, root.ID, RoleProposal))
+	mustNoErr(t, s.LinkNodeToFeature(f.ID, child.ID, RoleImplementation))
+
+	got, err := s.GetFeature(f.ID)
+	mustNoErr(t, err)
+	if len(got.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(got.Nodes))
+	}
+	// current_node should be child (implementation > proposal)
+	if got.CurrentNode != child.ID {
+		t.Fatalf("expected current_node %d, got %d", child.ID, got.CurrentNode)
+	}
+	if got.CurrentNodeMode != "derived" {
+		t.Fatalf("expected derived, got %s", got.CurrentNodeMode)
+	}
+}
+
+// TestLinkNodeToFeatureIdempotentUpdatesRole verifies re-linking updates role.
+func TestLinkNodeToFeatureIdempotentUpdatesRole(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+
+	f, err := s.CreateFeature("RL", root.ID)
+	mustNoErr(t, err)
+
+	mustNoErr(t, s.LinkNodeToFeature(f.ID, root.ID, RoleProposal))
+	mustNoErr(t, s.LinkNodeToFeature(f.ID, root.ID, RoleImplementation))
+
+	got, err := s.GetFeature(f.ID)
+	mustNoErr(t, err)
+	if len(got.Nodes) != 1 {
+		t.Fatalf("expected 1 node after idempotent link, got %d", len(got.Nodes))
+	}
+	if got.Nodes[0].Role != RoleImplementation {
+		t.Fatalf("expected role updated to implementation, got %s", got.Nodes[0].Role)
+	}
+}
+
+// TestNodeBelongsToMultipleFeatures verifies a node can be in multiple features.
+func TestNodeBelongsToMultipleFeatures(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+
+	f1, err := s.CreateFeature("Feature A", root.ID)
+	mustNoErr(t, err)
+	f2, err := s.CreateFeature("Feature B", root.ID)
+	mustNoErr(t, err)
+
+	mustNoErr(t, s.LinkNodeToFeature(f1.ID, root.ID, RoleImplementation))
+	mustNoErr(t, s.LinkNodeToFeature(f2.ID, root.ID, RoleBenchmark))
+
+	got1, err := s.GetFeature(f1.ID)
+	mustNoErr(t, err)
+	if len(got1.Nodes) != 1 {
+		t.Fatalf("Feature A: expected 1 node, got %d", len(got1.Nodes))
+	}
+	got2, err := s.GetFeature(f2.ID)
+	mustNoErr(t, err)
+	if len(got2.Nodes) != 1 {
+		t.Fatalf("Feature B: expected 1 node, got %d", len(got2.Nodes))
+	}
+}
+
+// TestOpenBackfillsMissingFeaturesLayout verifies legacy stores gain features.json on open.
+func TestOpenBackfillsMissingFeaturesLayout(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	if err := os.Remove(s.featuresPath()); err != nil {
+		t.Fatalf("remove features.json: %v", err)
+	}
+	opened, err := Open(s.rootPath)
+	if err != nil {
+		t.Fatalf("open after removing features.json: %v", err)
+	}
+	if _, err := os.Stat(opened.featuresPath()); err != nil {
+		t.Fatalf("expected backfilled features.json: %v", err)
+	}
+}

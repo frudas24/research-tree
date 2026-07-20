@@ -1581,3 +1581,140 @@ func runCLI(t *testing.T, args ...string) (string, error) {
 	err := root.Execute()
 	return buf.String(), err
 }
+
+// TestCLIFeatureCreateListShow verifies basic feature CRUD via CLI.
+func TestCLIFeatureCreateListShow(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "proposal-node")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "create", "RL Bridge", "--from-node", "1")
+	if err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+	if !strings.Contains(out, "f0001") {
+		t.Fatalf("expected f0001 in output: %s", out)
+	}
+
+	out, err = runCLI(t, "--research-root", root, "feature", "list")
+	if err != nil {
+		t.Fatalf("list features: %v", err)
+	}
+	if !strings.Contains(out, "f0001") || !strings.Contains(out, "RL Bridge") {
+		t.Fatalf("list missing feature: %s", out)
+	}
+
+	out, err = runCLI(t, "--research-root", root, "feature", "show", "f0001")
+	if err != nil {
+		t.Fatalf("show feature: %v", err)
+	}
+	if !strings.Contains(out, "rl-bridge") {
+		t.Fatalf("show missing slug: %s", out)
+	}
+
+	// JSON output
+	out, err = runCLI(t, "--research-root", root, "--json", "feature", "list")
+	if err != nil {
+		t.Fatalf("list json: %v", err)
+	}
+	if !strings.Contains(out, `"id": "f0001"`) {
+		t.Fatalf("json missing id: %s", out)
+	}
+}
+
+// TestCLINodeCreateLinkFeature verifies --feature flag on node create.
+func TestCLINodeCreateLinkFeature(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "proposal")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "RL Bridge", "--from-node", "1")
+
+	out, err := runCLI(t, "--research-root", root, "node", "create",
+		"--title", "impl", "--feature", "f0001", "--feature-role", "implementation")
+	if err != nil {
+		t.Fatalf("create node with feature: %v", err)
+	}
+	if !strings.Contains(out, "created node") {
+		t.Fatalf("unexpected output: %s", out)
+	}
+
+	// Verify feature has the node
+	out, err = runCLI(t, "--research-root", root, "feature", "show", "f0001")
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	if !strings.Contains(out, "implementation") {
+		t.Fatalf("feature missing node: %s", out)
+	}
+}
+
+// TestCLIFeatureLinkExistingNode verifies rt feature link.
+func TestCLIFeatureLinkExistingNode(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "existing")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "RL", "--from-node", "1")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "link", "f0001", "1", "--role", "benchmark")
+	if err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	if !strings.Contains(out, "linked") {
+		t.Fatalf("unexpected: %s", out)
+	}
+
+	// Show should have the linked node
+	out, err = runCLI(t, "--research-root", root, "feature", "show", "f0001")
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	if !strings.Contains(out, "benchmark") {
+		t.Fatalf("missing linked node: %s", out)
+	}
+}
+
+// TestCLIFeatureShowDerivedCurrentNode verifies current_node is derived correctly.
+func TestCLIFeatureShowDerivedCurrentNode(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	// Create feature with proposal node
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "proposal")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "RL", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0001", "1", "--role", "proposal")
+	// Add implementation node (should become current)
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "impl")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0001", "2", "--role", "implementation")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "show", "f0001")
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	if !strings.Contains(out, "current node: 0002") {
+		t.Fatalf("expected current_node 0002: %s", out)
+	}
+	if !strings.Contains(out, "derived") {
+		t.Fatalf("expected derived mode: %s", out)
+	}
+}
+
+// TestCLICurrentNodeOnlyFromImplFixDecision verifies derived current_node ignores non-qualifying roles.
+func TestCLICurrentNodeOnlyFromImplFixDecision(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "proposal")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "RL", "--from-node", "1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0001", "1", "--role", "proposal")
+	// Add a benchmark node (should NOT become current)
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "bench")
+	_, _ = runCLI(t, "--research-root", root, "feature", "link", "f0001", "2", "--role", "benchmark")
+
+	out, err := runCLI(t, "--research-root", root, "feature", "show", "f0001")
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	// current_node should be 1 (proposal is not qualifying but it's the only option... wait, proposal doesn't qualify either)
+	// So current_node should be empty
+	if strings.Contains(out, "current node:") {
+		t.Fatalf("expected no current_node (proposal+benchmark don't qualify): %s", out)
+	}
+}

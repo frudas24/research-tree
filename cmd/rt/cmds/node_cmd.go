@@ -34,7 +34,8 @@ func newNodeCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeCreateCmd constructs the "node create" subcommand.
 func newNodeCreateCmd(opts *RootOptions) *cobra.Command {
-	var title, status, claimStatus, evidenceStatus, evidenceCause, evidenceScope, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, parentsCSV, continuedByCSV, supersededByCSV, agent, tagsCSV, bodyInline, bodyFile, relationsCSV, primaryParentStr string
+	var title, status, claimStatus, evidenceStatus, evidenceCause, evidenceScope, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, parentsCSV, continuedByCSV, supersededByCSV, agent, tagsCSV, bodyInline, bodyFile, relationsCSV, primaryParentStr, featureSpec, featureRole string
+	var createFeature bool
 	var outcome string
 	var useEditor bool
 	cmd := &cobra.Command{
@@ -111,6 +112,29 @@ is taken from --body or --body-file if provided.`,
 			if err := store.CreateNode(n); err != nil {
 				return err
 			}
+
+			// Feature linking
+			if strings.TrimSpace(featureSpec) != "" {
+				spec := strings.TrimSpace(featureSpec)
+				if createFeature && !store.FeatureExists(spec) {
+					var fromID retree.NodeID
+					if len(parents) > 0 {
+						fromID = parents[0]
+					}
+					f, ferr := store.CreateFeature(spec, fromID)
+					if ferr != nil {
+						return fmt.Errorf("--create-feature: %w", ferr)
+					}
+					spec = f.ID
+				}
+				role := retree.FeatureNodeRole(strings.TrimSpace(featureRole))
+				if role == "" {
+					role = retree.RoleImplementation
+				}
+				if err := store.LinkNodeToFeature(spec, n.ID, role); err != nil {
+					return fmt.Errorf("--feature: %w", err)
+				}
+			}
 			msg := fmt.Sprintf("created node %04d", n.ID)
 			if w := lineageWarning(n); w != "" && !opts.OutputJSON {
 				msg += "\nwarning: " + w
@@ -140,6 +164,9 @@ is taken from --body or --body-file if provided.`,
 	cmd.Flags().BoolVar(&useEditor, "edit", false, "Open $EDITOR to write body")
 	cmd.Flags().StringVar(&relationsCSV, "relation", "", "Add typed relation (type:target, e.g. compares_against:5)")
 	cmd.Flags().StringVar(&primaryParentStr, "primary-parent", "", "Designate a primary parent ID")
+	cmd.Flags().StringVar(&featureSpec, "feature", "", "Link node to feature (id, slug, or name)")
+	cmd.Flags().StringVar(&featureRole, "feature-role", "", "Node role within feature (default: implementation)")
+	cmd.Flags().BoolVar(&createFeature, "create-feature", false, "Auto-create feature if it does not exist")
 	_ = cmd.MarkFlagRequired("title")
 	return cmd
 }
