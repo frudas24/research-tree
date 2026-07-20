@@ -1822,6 +1822,22 @@ func TestCLIFeatureDoctorUnmoored(t *testing.T) {
 	}
 }
 
+// TestCLIFeatureDoctorFailsOnCorruptEdges verifies doctor does not hide edge parse errors.
+func TestCLIFeatureDoctorFailsOnCorruptEdges(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "n1")
+	_, _ = runCLI(t, "--research-root", root, "feature", "create", "A", "--from-node", "1")
+	if err := os.WriteFile(filepath.Join(root, "feature_edges.jsonl"), []byte("{bad json}\n"), 0o644); err != nil {
+		t.Fatalf("write corrupt feature_edges.jsonl: %v", err)
+	}
+
+	_, err := runCLI(t, "--research-root", root, "feature", "doctor", "f0001")
+	if err == nil {
+		t.Fatal("expected doctor to fail on corrupt feature edges")
+	}
+}
+
 // TestCLIFeatureImpactDependsChain verifies impact shows depends_on relationships.
 func TestCLIFeatureImpactDependsChain(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
