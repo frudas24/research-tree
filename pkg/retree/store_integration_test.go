@@ -746,6 +746,14 @@ func TestFeatureCRUD(t *testing.T) {
 	}
 }
 
+// TestStoreCreateFeatureRejectsMissingCreatedFrom verifies Store API enforces created_from existence.
+func TestStoreCreateFeatureRejectsMissingCreatedFrom(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	if _, err := s.CreateFeature("Broken", 999); err == nil {
+		t.Fatal("expected error for missing created_from node")
+	}
+}
+
 // TestLinkNodeToFeature verifies linking and unlinking.
 func TestLinkNodeToFeature(t *testing.T) {
 	s := mustInit(t, StorageJSON)
@@ -793,6 +801,32 @@ func TestLinkNodeToFeatureIdempotentUpdatesRole(t *testing.T) {
 	}
 	if got.Nodes[0].Role != RoleImplementation {
 		t.Fatalf("expected role updated to implementation, got %s", got.Nodes[0].Role)
+	}
+}
+
+// TestStoreLinkFeatureRejectsMissingNode verifies Store API enforces node existence.
+func TestStoreLinkFeatureRejectsMissingNode(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f, err := s.CreateFeature("RL", root.ID)
+	mustNoErr(t, err)
+
+	if err := s.LinkNodeToFeature(f.ID, 999, RoleImplementation); err == nil {
+		t.Fatal("expected error for missing linked node")
+	}
+}
+
+// TestStoreLinkFeatureRejectsInvalidRole verifies Store API enforces role enum validity.
+func TestStoreLinkFeatureRejectsInvalidRole(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f, err := s.CreateFeature("RL", root.ID)
+	mustNoErr(t, err)
+
+	if err := s.LinkNodeToFeature(f.ID, root.ID, FeatureNodeRole("owner")); err == nil {
+		t.Fatal("expected error for invalid feature role")
 	}
 }
 
@@ -877,6 +911,30 @@ func TestFeatureEdgeRejectsInvalidType(t *testing.T) {
 	err := s.RelateFeatures(f1.ID, f2.ID, FeatureEdgeType("related_to"), root.ID)
 	if err == nil {
 		t.Fatal("expected error for invalid edge type")
+	}
+}
+
+// TestStoreRelateRejectsMissingFeature verifies Store API rejects unknown features.
+func TestStoreRelateRejectsMissingFeature(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+
+	if err := s.RelateFeatures(f1.ID, "f9999", EdgeDependsOn, root.ID); err == nil {
+		t.Fatal("expected error for missing target feature")
+	}
+}
+
+// TestStoreRelateRejectsSelfEdge verifies self-edges are rejected.
+func TestStoreRelateRejectsSelfEdge(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root"}}
+	mustNoErr(t, s.CreateNode(root))
+	f1, _ := s.CreateFeature("A", root.ID)
+
+	if err := s.RelateFeatures(f1.ID, f1.ID, EdgeDependsOn, root.ID); err == nil {
+		t.Fatal("expected error for self-edge")
 	}
 }
 

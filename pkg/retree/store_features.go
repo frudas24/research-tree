@@ -91,7 +91,12 @@ func (s *Store) CreateFeature(name string, createdFrom NodeID) (*Feature, error)
 func (s *Store) createFeature(name string, createdFrom NodeID) (*Feature, error) {
 	var created *Feature
 	err := s.withLock("create_feature", func() error {
-		_ = s.ensureFeaturesLayout()
+		if err := s.ensureFeaturesLayout(); err != nil {
+			return err
+		}
+		if _, err := s.GetNode(createdFrom); err != nil {
+			return fmt.Errorf("created_from node %d: %w", createdFrom, ErrNotFound)
+		}
 		slug := Slugify(name)
 		if slug == "" {
 			return &FeatureError{msg: "slug is empty after normalization"}
@@ -112,6 +117,9 @@ func (s *Store) createFeature(name string, createdFrom NodeID) (*Feature, error)
 			Slug:        slug,
 			Status:      FeatureActive,
 			CreatedFrom: createdFrom,
+		}
+		if err := ValidateFeature(f); err != nil {
+			return err
 		}
 		payload.Features = append(payload.Features, f)
 		if serr := s.saveFeaturePayload(payload); serr != nil {
@@ -162,6 +170,12 @@ func (s *Store) LinkNodeToFeature(featureSpec string, nodeID NodeID, role Featur
 	fid, err := s.resolveFeatureID(featureSpec)
 	if err != nil {
 		return err
+	}
+	if _, err := s.GetNode(nodeID); err != nil {
+		return fmt.Errorf("linked node %d: %w", nodeID, ErrNotFound)
+	}
+	if !slices.Contains(validFeatureNodeRoles, role) {
+		return &FeatureError{msg: "unknown node role: " + string(role)}
 	}
 	return s.withLock("link_node_feature", func() error {
 		payload, err := s.loadFeaturePayload()
@@ -236,6 +250,9 @@ func (s *Store) SetFeatureStatus(featureSpec string, status FeatureStatus) error
 		for _, f := range payload.Features {
 			if f.ID == fid {
 				f.Status = status
+				if err := ValidateFeature(f); err != nil {
+					return err
+				}
 				return s.saveFeaturePayload(payload)
 			}
 		}
@@ -249,6 +266,9 @@ func (s *Store) SetFeatureCurrentNode(featureSpec string, nodeID NodeID) error {
 	if err != nil {
 		return err
 	}
+	if _, err := s.GetNode(nodeID); err != nil {
+		return fmt.Errorf("current node %d: %w", nodeID, ErrNotFound)
+	}
 	return s.withLock("set_feature_current", func() error {
 		payload, err := s.loadFeaturePayload()
 		if err != nil {
@@ -258,6 +278,9 @@ func (s *Store) SetFeatureCurrentNode(featureSpec string, nodeID NodeID) error {
 			if f.ID == fid {
 				f.CurrentNode = nodeID
 				f.CurrentNodeMode = "explicit"
+				if err := ValidateFeature(f); err != nil {
+					return err
+				}
 				return s.saveFeaturePayload(payload)
 			}
 		}
@@ -332,6 +355,12 @@ func (s *Store) RelateFeatures(fromSpec, toSpec string, edgeType FeatureEdgeType
 	}
 	if fidFrom == fidTo {
 		return &FeatureError{msg: "cannot relate feature to itself"}
+	}
+	if _, err := s.GetFeature(fidFrom); err != nil {
+		return fmt.Errorf("from: %w", err)
+	}
+	if _, err := s.GetFeature(fidTo); err != nil {
+		return fmt.Errorf("to: %w", err)
 	}
 	if _, err := s.GetNode(createdFrom); err != nil {
 		return fmt.Errorf("created_from node %d: %w", createdFrom, ErrNotFound)
