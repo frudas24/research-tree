@@ -259,3 +259,100 @@ func main() {
     _, _ = active, s.AddParents(n.ID, 2, 3)
 }
 ```
+
+---
+
+## Feature Lineage
+
+Features are living project entities (`f0001`, `f0002`, ...) stored in
+`features.json`. Node-to-feature links and feature-to-feature edges provide
+operational lineage on top of the research DAG.
+
+```go
+store, _ := retree.Open(".research")
+
+// ── Features ──────────────────────────────────────────────────────────
+f, _ := store.CreateFeature("RL Bridge", 41)
+store.GetFeature("f0001")
+store.GetFeature("rl-bridge")       // by slug
+store.ListFeatures()
+store.FeatureExists("RL Bridge")    // bool
+store.SetFeatureStatus("f0001", retree.FeatureRetired)
+store.SetFeatureCurrentNode("f0001", 68)
+
+// ── Node linking ──────────────────────────────────────────────────────
+store.LinkNodeToFeature("f0001", 47, retree.RoleImplementation)
+// Idempotent: re-linking updates role
+
+// ── Feature edges ─────────────────────────────────────────────────────
+store.RelateFeatures("f0002", "f0001", retree.EdgeDependsOn, 58)
+store.RelateFeatures("f0003", "f0001", retree.EdgeCollaboratesWith, 62)
+store.RelateFeatures("f0008", "f0001", retree.EdgeSupersedes, 74)
+store.UnrelateFeatures("f0002", "f0001", retree.EdgeDependsOn)
+store.ListFeatureEdges("f0001")
+store.ListAllFeatureEdges()
+
+// ── Health & diagnostics ──────────────────────────────────────────────
+store.ComputeFeatureHealth("f0001")     // *FeatureHealthReport
+store.ComputeFeatureTimeline("f0001")   // timeline with node titles
+store.ComputeAllFeatureHealth()         // []*FeatureHealthReport
+
+// ── Impact & graph ────────────────────────────────────────────────────
+store.ComputeFeatureImpact("f0001")     // who depends on us
+store.ComputeFeatureGraph("f0001")      // subgraph nodes + edges
+```
+
+### Feature types
+
+```go
+type Feature struct {
+    ID              string             // "f0001"
+    Name            string             // "RL Bridge"
+    Slug            string             // "rl-bridge"
+    Status          FeatureStatus      // active | degraded | retired
+    CreatedFrom     NodeID             // node that proposed this feature
+    CurrentNode     NodeID             // latest impl/fix/decision
+    CurrentNodeMode string             // "explicit" or "derived"
+    Nodes           []FeatureLinkedNode
+}
+
+type FeatureLinkedNode struct {
+    NodeID NodeID
+    Role   FeatureNodeRole // proposal|implementation|experiment|benchmark|regression|fix|decision|documentation
+}
+
+type FeatureEdge struct {
+    From        string          // feature id
+    To          string          // feature id
+    Type        FeatureEdgeType // depends_on|collaborates_with|supersedes
+    CreatedFrom NodeID          // RT node documenting this decision
+}
+```
+
+### Feature roles and current_node
+
+`current_node` is derived from the latest linked node with role
+`implementation`, `fix`, or `decision`. Set explicitly with
+`SetFeatureCurrentNode` to override.
+
+### Feature edge rules
+
+- `depends_on` and `supersedes` cycles are rejected.
+- `collaborates_with` cycles are allowed.
+- Duplicate edges (same from, to, type) are rejected.
+- `created_from` must reference an existing RT node.
+- If the `created_from` node disappears, the edge is marked `unmoored`.
+
+### Derived health
+
+`derived_health` is computed at read time, never persisted:
+
+| Condition | Health |
+|-----------|--------|
+| impl/fix/decision/regression node poisoned | `degraded` |
+| benchmark/experiment node poisoned | `warning` |
+| `depends_on` degraded feature | `degraded` |
+| `collaborates_with` degraded feature | `warning` |
+| Edge `created_from` node missing | `unmoored` |
+| Superseded by another feature | retirement candidate |
+| No issues | `clean` |

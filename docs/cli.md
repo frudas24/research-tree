@@ -545,3 +545,115 @@ Suggested pattern:
 2. Narrow with `node list --tag/--body-contains/...`.
 3. Traverse with `ancestors` / `descendants`.
 4. Deep-dive with `show` and `history`.
+
+---
+
+## Feature Lineage
+
+Features are living project entities that span multiple RT nodes. While
+nodes capture events, features capture what is alive right now.
+
+```
+Nodes    = events / evidence / decisions       (fossil record)
+Features = living entities of the project      (organism)
+Edges    = operational impact between features (nervous system)
+```
+
+### `rt feature`
+
+```bash
+rt feature create "Neural Network Spike" --from-node 0007
+rt feature list
+rt feature list --json
+rt feature show f0001
+rt feature show f0001 --json
+rt feature timeline f0001
+rt feature timeline f0001 --json
+```
+
+### `rt feature link`
+
+```bash
+rt feature link f0001 0047 --role implementation
+rt feature link "RL Bridge" 0048 --role benchmark
+```
+
+Linking a node to a feature is idempotent: re-linking updates the role.
+Nodes can belong to multiple features. Roles: `proposal`, `implementation`,
+`experiment`, `benchmark`, `regression`, `fix`, `decision`, `documentation`.
+
+`current_node` is derived from the latest linked node with role
+`implementation`, `fix`, or `decision`. Use `--feature` and
+`--feature-role` on `rt node create` to link at creation time:
+
+```bash
+rt node create --title "RL baseline" --feature f0001 --feature-role experiment
+rt node create --title "RL bridge" --feature "RL Bridge" --create-feature --feature-role implementation
+```
+
+### `rt feature relate`
+
+```bash
+rt feature relate f0002 f0001 depends_on --from-node 0058
+rt feature relate f0003 f0001 collaborates_with --from-node 0062
+rt feature relate f0008 f0001 supersedes --from-node 0074
+rt feature unrelate f0002 f0001 depends_on
+rt feature edges f0001
+rt feature edges f0001 --json
+```
+
+Edge types: `depends_on`, `collaborates_with`, `supersedes`.
+`--from-node` is required and must reference an existing RT node documenting
+the decision. Duplicate edges are rejected. `depends_on` and `supersedes`
+cycles are rejected; `collaborates_with` cycles are allowed.
+
+For `supersedes`: `from` is the replacement, `to` is the replaced.
+
+### `rt feature doctor`
+
+```bash
+rt feature doctor f0001
+rt feature doctor --all
+rt feature doctor f0001 --json
+```
+
+Computes `derived_health` at read time (never persisted):
+
+| Condition | Health |
+|-----------|--------|
+| Linked node impl/fix/decision/regression poisoned | `degraded` |
+| Linked node benchmark/experiment poisoned | `warning` |
+| `depends_on` a degraded feature | `degraded` |
+| `collaborates_with` a degraded feature | `warning` |
+| Edge with missing `created_from` node | `unmoored` |
+| Superseded by another feature | retirement candidate reported |
+
+Severity order: `degraded > unmoored > warning > clean`.
+
+### `rt feature impact`
+
+```bash
+rt feature impact f0001
+rt feature impact f0001 --json
+```
+
+Shows which features depend on, collaborate with, or are depended upon by
+this feature.
+
+### `rt feature graph`
+
+```bash
+rt feature graph f0001
+rt feature graph f0001 --json
+```
+
+Shows the immediate subgraph (nodes + edges) around a feature.
+
+### Feature status
+
+`active | degraded | retired` — set by the maintainer via
+`rt feature show` / `store.SetFeatureStatus`. `derived_health` is
+evidence-based and computed, not manual.
+
+Feature slugs are unique. Lookup accepts ID (`f0001`), slug, or name.
+`rt node create --feature "Name" --create-feature` auto-creates if missing.

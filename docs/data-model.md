@@ -172,3 +172,74 @@ rt golden
   "body": "## Hypothesis\nk=128 gives better coverage than k=64.\n"
 }
 ```
+
+---
+
+## Feature Lineage
+
+Features are living project entities stored in `features.json`. They group
+related RT nodes and track the lifecycle of what is alive in the project.
+
+### features.json
+
+```json
+{
+  "next_id": 3,
+  "features": [
+    {
+      "id": "f0001",
+      "name": "Reinforcement Learning Bridge",
+      "slug": "reinforcement-learning-bridge",
+      "status": "active",
+      "created_from": 41,
+      "current_node": 68,
+      "current_node_mode": "derived",
+      "nodes": [
+        {"node_id": 41, "role": "proposal"},
+        {"node_id": 47, "role": "implementation"},
+        {"node_id": 62, "role": "benchmark"},
+        {"node_id": 68, "role": "fix"}
+      ]
+    }
+  ]
+}
+```
+
+### feature_edges.jsonl
+
+```json
+{"from":"f0002","to":"f0001","type":"collaborates_with","created_from":58}
+{"from":"f0003","to":"f0001","type":"depends_on","created_from":61}
+{"from":"f0008","to":"f0001","type":"supersedes","created_from":74}
+```
+
+### Feature status
+
+| Status | Meaning |
+|--------|---------|
+| `active` | Feature is alive and maintained |
+| `degraded` | Maintainer marked as degraded |
+| `retired` | No longer in use |
+
+### Derived health (computed, not stored)
+
+| Health | Meaning |
+|--------|---------|
+| `clean` | No issues detected |
+| `warning` | Collaborator degraded or benchmark poisoned |
+| `degraded` | Implementation poisoned or depends_on degraded |
+| `unmoored` | Edge has lost its evidence anchor |
+
+### Edge types
+
+| Type | Cycle | Propagation |
+|------|-------|-------------|
+| `depends_on` | Rejected | Degraded propagates |
+| `collaborates_with` | Allowed | Warning only |
+| `supersedes` | Rejected | Reports retirement candidate |
+
+### Node roles within a feature
+
+`proposal | implementation | experiment | benchmark | regression | fix | decision | documentation`
+
+Only `implementation`, `fix`, and `decision` affect `current_node` derivation.
