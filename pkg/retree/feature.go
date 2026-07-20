@@ -25,10 +25,10 @@ var validFeatureStatuses = []FeatureStatus{
 type DerivedHealth string
 
 const (
-	HealthClean     DerivedHealth = "clean"
-	HealthWarning   DerivedHealth = "warning"
-	HealthDegraded  DerivedHealth = "degraded"
-	HealthUnmoored  DerivedHealth = "unmoored"
+	HealthClean    DerivedHealth = "clean"
+	HealthWarning  DerivedHealth = "warning"
+	HealthDegraded DerivedHealth = "degraded"
+	HealthUnmoored DerivedHealth = "unmoored"
 )
 
 // FeatureNodeRole classifies a node's relationship to a feature.
@@ -71,14 +71,14 @@ type FeatureLinkedNode struct {
 
 // Feature is a living project entity that spans multiple RT nodes.
 type Feature struct {
-	ID               string              `json:"id"`
-	Name             string              `json:"name"`
-	Slug             string              `json:"slug"`
-	Status           FeatureStatus       `json:"status"`
-	CreatedFrom      NodeID              `json:"created_from"`
-	CurrentNode      NodeID              `json:"current_node,omitempty"`
-	CurrentNodeMode  string              `json:"current_node_mode,omitempty"` // "explicit" or "derived"
-	Nodes            []FeatureLinkedNode  `json:"nodes"`
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	Slug            string              `json:"slug"`
+	Status          FeatureStatus       `json:"status"`
+	CreatedFrom     NodeID              `json:"created_from"`
+	CurrentNode     NodeID              `json:"current_node,omitempty"`
+	CurrentNodeMode string              `json:"current_node_mode,omitempty"` // "explicit" or "derived"
+	Nodes           []FeatureLinkedNode `json:"nodes"`
 }
 
 // FeatureEdge is a typed operational relationship between two features.
@@ -86,9 +86,9 @@ type Feature struct {
 type FeatureEdgeType string
 
 const (
-	EdgeDependsOn       FeatureEdgeType = "depends_on"
+	EdgeDependsOn        FeatureEdgeType = "depends_on"
 	EdgeCollaboratesWith FeatureEdgeType = "collaborates_with"
-	EdgeSupersedes      FeatureEdgeType = "supersedes"
+	EdgeSupersedes       FeatureEdgeType = "supersedes"
 )
 
 var validFeatureEdgeTypes = []FeatureEdgeType{
@@ -99,8 +99,8 @@ var validFeatureEdgeTypes = []FeatureEdgeType{
 
 // FeatureEdge is persisted in feature_edges.jsonl.
 type FeatureEdge struct {
-	From        string         `json:"from"`
-	To          string         `json:"to"`
+	From        string          `json:"from"`
+	To          string          `json:"to"`
 	Type        FeatureEdgeType `json:"type"`
 	CreatedFrom NodeID          `json:"created_from"`
 }

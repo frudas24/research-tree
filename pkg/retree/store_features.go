@@ -3,10 +3,10 @@ package retree
 import (
 	"bufio"
 	"encoding/json"
-	"slices"
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -451,11 +451,11 @@ func (s *Store) ListAllFeatureEdges() ([]FeatureEdge, error) {
 
 // FeatureImpact reports what depends on or collaborates with a feature.
 type FeatureImpact struct {
-	FeatureID    string          `json:"feature_id"`
-	FeatureName  string          `json:"feature_name"`
-	DependsOnUs  []string        `json:"depends_on_us"`
-	Collaborates []string        `json:"collaborates_with_us"`
-	WeDependOn   []string        `json:"we_depend_on"`
+	FeatureID    string   `json:"feature_id"`
+	FeatureName  string   `json:"feature_name"`
+	DependsOnUs  []string `json:"depends_on_us"`
+	Collaborates []string `json:"collaborates_with_us"`
+	WeDependOn   []string `json:"we_depend_on"`
 }
 
 // ComputeFeatureImpact analyzes what other features depend on or collaborate with this one.
@@ -510,8 +510,8 @@ type FeatureGraphNode struct {
 
 // FeatureGraphEdge is an edge in a feature subgraph.
 type FeatureGraphEdge struct {
-	From string         `json:"from"`
-	To   string         `json:"to"`
+	From string          `json:"from"`
+	To   string          `json:"to"`
 	Type FeatureEdgeType `json:"type"`
 }
 

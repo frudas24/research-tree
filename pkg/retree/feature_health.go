@@ -24,11 +24,11 @@ func worstHealth(a, b DerivedHealth) DerivedHealth {
 
 // FeatureHealthReport is the structured output of a feature health check.
 type FeatureHealthReport struct {
-	FeatureID   string        `json:"feature_id"`
-	FeatureName string        `json:"feature_name"`
-	Status      FeatureStatus `json:"status"`
-	Health      DerivedHealth `json:"health"`
-	Issues      []string      `json:"issues"`
+	FeatureID   string          `json:"feature_id"`
+	FeatureName string          `json:"feature_name"`
+	Status      FeatureStatus   `json:"status"`
+	Health      DerivedHealth   `json:"health"`
+	Issues      []string        `json:"issues"`
 	Timeline    []TimelineEntry `json:"timeline,omitempty"`
 }
 
