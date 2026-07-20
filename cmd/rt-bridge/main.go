@@ -631,6 +631,277 @@ func retree_ack_warning(handle uintptr, warningID *C.char) *C.char {
 	return jsonResult(map[string]string{"ack": C.GoString(warningID)})
 }
 
+// ── Features ─────────────────────────────────────────────────────
+
+type featureCreatePayload struct {
+	Name        string        `json:"name"`
+	CreatedFrom retree.NodeID `json:"created_from"`
+}
+
+type featureSpecPayload struct {
+	Spec string `json:"spec"`
+}
+
+type featureLinkPayload struct {
+	Feature string                 `json:"feature"`
+	NodeID  retree.NodeID          `json:"node_id"`
+	Role    retree.FeatureNodeRole `json:"role"`
+}
+
+type featureRelatePayload struct {
+	From        string                 `json:"from"`
+	To          string                 `json:"to"`
+	Type        retree.FeatureEdgeType `json:"type"`
+	CreatedFrom retree.NodeID          `json:"created_from"`
+}
+
+type featureUnrelatePayload struct {
+	From string                 `json:"from"`
+	To   string                 `json:"to"`
+	Type retree.FeatureEdgeType `json:"type"`
+}
+
+type featureStatusPayload struct {
+	Feature string               `json:"feature"`
+	Status  retree.FeatureStatus `json:"status"`
+}
+
+type featureCurrentNodePayload struct {
+	Feature string        `json:"feature"`
+	NodeID  retree.NodeID `json:"node_id"`
+}
+
+//export retree_create_feature
+func retree_create_feature(handle uintptr, payloadJSON *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	var payload featureCreatePayload
+	if err := json.Unmarshal([]byte(C.GoString(payloadJSON)), &payload); err != nil {
+		return jsonError(err)
+	}
+	feature, err := s.CreateFeature(payload.Name, payload.CreatedFrom)
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(feature)
+}
+
+//export retree_list_features
+func retree_list_features(handle uintptr) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	features, err := s.ListFeatures()
+	if err != nil {
+		return jsonError(err)
+	}
+	if features == nil {
+		features = []*retree.Feature{}
+	}
+	return jsonResult(features)
+}
+
+//export retree_get_feature
+func retree_get_feature(handle uintptr, featureSpec *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	feature, err := s.GetFeature(C.GoString(featureSpec))
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(feature)
+}
+
+//export retree_link_node_to_feature
+func retree_link_node_to_feature(handle uintptr, payloadJSON *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	var payload featureLinkPayload
+	if err := json.Unmarshal([]byte(C.GoString(payloadJSON)), &payload); err != nil {
+		return jsonError(err)
+	}
+	if err := s.LinkNodeToFeature(payload.Feature, payload.NodeID, payload.Role); err != nil {
+		return jsonError(err)
+	}
+	feature, err := s.GetFeature(payload.Feature)
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(feature)
+}
+
+//export retree_relate_features
+func retree_relate_features(handle uintptr, payloadJSON *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	var payload featureRelatePayload
+	if err := json.Unmarshal([]byte(C.GoString(payloadJSON)), &payload); err != nil {
+		return jsonError(err)
+	}
+	if err := s.RelateFeatures(payload.From, payload.To, payload.Type, payload.CreatedFrom); err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(map[string]any{
+		"from":         payload.From,
+		"to":           payload.To,
+		"type":         payload.Type,
+		"created_from": payload.CreatedFrom,
+	})
+}
+
+//export retree_unrelate_features
+func retree_unrelate_features(handle uintptr, payloadJSON *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	var payload featureUnrelatePayload
+	if err := json.Unmarshal([]byte(C.GoString(payloadJSON)), &payload); err != nil {
+		return jsonError(err)
+	}
+	if err := s.UnrelateFeatures(payload.From, payload.To, payload.Type); err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(map[string]any{
+		"from": payload.From,
+		"to":   payload.To,
+		"type": payload.Type,
+	})
+}
+
+//export retree_list_feature_edges
+func retree_list_feature_edges(handle uintptr, featureSpec *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	edges, err := s.ListFeatureEdges(C.GoString(featureSpec))
+	if err != nil {
+		return jsonError(err)
+	}
+	if edges == nil {
+		edges = []retree.FeatureEdge{}
+	}
+	return jsonResult(edges)
+}
+
+//export retree_compute_feature_health
+func retree_compute_feature_health(handle uintptr, featureSpec *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	report, err := s.ComputeFeatureHealth(C.GoString(featureSpec))
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(report)
+}
+
+//export retree_compute_all_feature_health
+func retree_compute_all_feature_health(handle uintptr) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	reports, err := s.ComputeAllFeatureHealth()
+	if err != nil {
+		return jsonError(err)
+	}
+	if reports == nil {
+		reports = []*retree.FeatureHealthReport{}
+	}
+	return jsonResult(reports)
+}
+
+//export retree_compute_feature_timeline
+func retree_compute_feature_timeline(handle uintptr, featureSpec *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	report, err := s.ComputeFeatureTimeline(C.GoString(featureSpec))
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(report)
+}
+
+//export retree_compute_feature_impact
+func retree_compute_feature_impact(handle uintptr, featureSpec *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	impact, err := s.ComputeFeatureImpact(C.GoString(featureSpec))
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(impact)
+}
+
+//export retree_compute_feature_graph
+func retree_compute_feature_graph(handle uintptr, featureSpec *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	graph, err := s.ComputeFeatureGraph(C.GoString(featureSpec))
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(graph)
+}
+
+//export retree_set_feature_status
+func retree_set_feature_status(handle uintptr, payloadJSON *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	var payload featureStatusPayload
+	if err := json.Unmarshal([]byte(C.GoString(payloadJSON)), &payload); err != nil {
+		return jsonError(err)
+	}
+	if err := s.SetFeatureStatus(payload.Feature, payload.Status); err != nil {
+		return jsonError(err)
+	}
+	feature, err := s.GetFeature(payload.Feature)
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(feature)
+}
+
+//export retree_set_feature_current_node
+func retree_set_feature_current_node(handle uintptr, payloadJSON *C.char) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	var payload featureCurrentNodePayload
+	if err := json.Unmarshal([]byte(C.GoString(payloadJSON)), &payload); err != nil {
+		return jsonError(err)
+	}
+	if err := s.SetFeatureCurrentNode(payload.Feature, payload.NodeID); err != nil {
+		return jsonError(err)
+	}
+	feature, err := s.GetFeature(payload.Feature)
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(feature)
+}
+
 // ── Recovery ─────────────────────────────────────────────────────
 
 //export retree_list_snapshots
