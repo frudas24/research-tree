@@ -120,6 +120,9 @@ links to a baseline without polluting the parent lineage. No information is dest
 
 ## Key features
 
+- **Feature lineage + health.** Features group many nodes into one living project entity,
+  preserve explicit `current_node` selections, propagate `depends_on` degradation
+  transitively, and expose doctor/timeline/impact/graph views.
 - **DAG, not a tree.** A node can have multiple parents from different
   branches. Ideas merge, and the graph reflects that.
 - **Claims with lifecycle.** `provisional` → `validated` | `invalidated` →
@@ -258,7 +261,30 @@ Feature lineage adds a second layer above the research DAG:
 
 `current_node` is derived from the latest linked `implementation`, `fix`, or
 `decision` node unless it was set explicitly. Once `CurrentNodeMode` is
-`explicit`, later links do not overwrite it.
+`explicit`, later feature links do not overwrite it.
+
+`depends_on` health propagation is transitive:
+
+- If `A depends_on B`
+- and `B depends_on C`
+- and `C` is degraded
+- then both `B` and `A` are degraded in `rt feature doctor`
+
+`collaborates_with` is intentionally weaker: it can warn on a directly degraded
+collaborator, but it does not create infinite warning chains.
+
+If `feature_edges.jsonl` is unreadable or corrupt, `rt feature doctor` fails
+instead of returning a misleading partial-clean report.
+
+### Recent updates
+
+As of `v0.3.3`, the main user-visible changes are:
+
+- feature lineage contract fixes: explicit `current_node` is now invariant under later links
+- transitive `depends_on` health propagation in feature doctor
+- stricter store/API validation for feature create/link/relate operations
+- noisy failure on corrupt feature edge storage instead of false-clean doctor output
+- GitHub Actions workflows updated to Node 24 compatible action versions
 
 `rt feature doctor` computes health at read time:
 
