@@ -31,17 +31,20 @@ type finding struct {
 
 type golangciConfig struct {
 	Issues struct {
-		MaxIssuesPerLinter int      `yaml:"max-issues-per-linter"`
-		ExcludeDirs        []string `yaml:"exclude-dirs"`
-		ExcludeFiles       []string `yaml:"exclude-files"`
+		MaxIssuesPerLinter int `yaml:"max-issues-per-linter"`
 	} `yaml:"issues"`
+	Linters struct {
+		Exclusions struct {
+			Paths []string `yaml:"paths"`
+		} `yaml:"exclusions"`
+	} `yaml:"linters"`
 }
 
 // main is the entrypoint for the comment linter CLI.
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [packages]\n", os.Args[0])
-		fmt.Fprintf(flag.CommandLine.Output(), "Ensures every function has a doc comment. Defaults to ./...\n")
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [packages]\n", os.Args[0])
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Ensures every function has a doc comment. Defaults to ./...\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -62,8 +65,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	excludeDirs := normaliseDirs(cfg.Issues.ExcludeDirs)
-	excludeRegex, err := compileRegexps(cfg.Issues.ExcludeFiles)
+	exclusions := cfg.Linters.Exclusions.Paths
+	excludeDirs := normaliseDirs(exclusions)
+	excludeRegex, err := compileRegexps(exclusions)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "commentlint: %v\n", err)
 		os.Exit(1)
@@ -186,7 +190,6 @@ func listPackages(patterns []string) ([]pkgInfo, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	defer cmd.Wait()
 
 	dec := json.NewDecoder(bufio.NewReader(stdout))
 	var pkgs []pkgInfo
@@ -209,7 +212,9 @@ func isGeneratedFile(filename string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	scanner := bufio.NewScanner(f)
 	for i := 0; i < 10 && scanner.Scan(); i++ {
 		line := scanner.Text()

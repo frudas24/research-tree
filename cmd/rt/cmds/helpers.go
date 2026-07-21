@@ -534,8 +534,8 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 	if cc != nil {
 		title = cc.golden(n.MilestoneClass, title)
 	}
-	b.WriteString(fmt.Sprintf("%04d %s\n", n.ID, title))
-	b.WriteString(fmt.Sprintf("  status: %s  claim: %s  agent: %s\n", n.Status, n.ClaimStatus, n.Agent))
+	fmt.Fprintf(&b, "%04d %s\n", n.ID, title)
+	fmt.Fprintf(&b, "  status: %s  claim: %s  agent: %s\n", n.Status, n.ClaimStatus, n.Agent)
 	if n.EvidenceStatus != "" && n.EvidenceStatus != retree.EvidenceClean {
 		line := fmt.Sprintf("  evidence: %s", n.EvidenceStatus)
 		if n.EvidenceCause != "" {
@@ -560,44 +560,44 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 		b.WriteString(line + "\n")
 	}
 	if n.Scope != "" {
-		b.WriteString(fmt.Sprintf("  scope: %s\n", n.Scope))
+		fmt.Fprintf(&b, "  scope: %s\n", n.Scope)
 	}
 	if n.ExitCriteria != "" {
-		b.WriteString(fmt.Sprintf("  exit criteria: %s\n", n.ExitCriteria))
+		fmt.Fprintf(&b, "  exit criteria: %s\n", n.ExitCriteria)
 	}
 	if len(n.Tags) > 0 {
-		b.WriteString(fmt.Sprintf("  tags:   %s\n", strings.Join(n.Tags, ", ")))
+		fmt.Fprintf(&b, "  tags:   %s\n", strings.Join(n.Tags, ", "))
 	}
 	if len(n.Parents) > 0 {
 		ids := make([]string, len(n.Parents))
 		for i, p := range n.Parents {
 			ids[i] = fmt.Sprintf("%04d", p)
 		}
-		b.WriteString(fmt.Sprintf("  parents:  %s\n", strings.Join(ids, ", ")))
+		fmt.Fprintf(&b, "  parents:  %s\n", strings.Join(ids, ", "))
 	}
 	if len(children) > 0 {
 		ids := make([]string, len(children))
 		for i, c := range children {
 			ids[i] = fmt.Sprintf("%04d", c)
 		}
-		b.WriteString(fmt.Sprintf("  children: %s\n", strings.Join(ids, ", ")))
+		fmt.Fprintf(&b, "  children: %s\n", strings.Join(ids, ", "))
 	}
 	if len(n.ContinuedBy) > 0 {
 		ids := make([]string, len(n.ContinuedBy))
 		for i, c := range n.ContinuedBy {
 			ids[i] = fmt.Sprintf("%04d", c)
 		}
-		b.WriteString(fmt.Sprintf("  continued by: %s\n", strings.Join(ids, ", ")))
+		fmt.Fprintf(&b, "  continued by: %s\n", strings.Join(ids, ", "))
 	}
 	if len(n.SupersededBy) > 0 {
 		ids := make([]string, len(n.SupersededBy))
 		for i, c := range n.SupersededBy {
 			ids[i] = fmt.Sprintf("%04d", c)
 		}
-		b.WriteString(fmt.Sprintf("  superseded by: %s\n", strings.Join(ids, ", ")))
+		fmt.Fprintf(&b, "  superseded by: %s\n", strings.Join(ids, ", "))
 	}
 	if n.PrimaryParent != nil {
-		b.WriteString(fmt.Sprintf("  primary parent: %04d\n", *n.PrimaryParent))
+		fmt.Fprintf(&b, "  primary parent: %04d\n", *n.PrimaryParent)
 	}
 	if len(n.Relations) > 0 {
 		lines := make([]string, len(n.Relations))
@@ -608,7 +608,7 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 			}
 			lines[i] = fmt.Sprintf("%s:%04d%s", rel.Type, rel.Target, note)
 		}
-		b.WriteString(fmt.Sprintf("  relations: %s\n", strings.Join(lines, ", ")))
+		fmt.Fprintf(&b, "  relations: %s\n", strings.Join(lines, ", "))
 	}
 	if len(leases) > 0 {
 		b.WriteString("  resources:\n")
@@ -624,10 +624,10 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 		}
 	}
 	if len(n.Commits) > 0 {
-		b.WriteString(fmt.Sprintf("  commits: %d\n", len(n.Commits)))
+		fmt.Fprintf(&b, "  commits: %d\n", len(n.Commits))
 	}
 	if len(n.Artifacts) > 0 {
-		b.WriteString(fmt.Sprintf("  artifacts: %d\n", len(n.Artifacts)))
+		fmt.Fprintf(&b, "  artifacts: %d\n", len(n.Artifacts))
 		if full {
 			for i, a := range n.Artifacts {
 				mode := string(a.Mode)
@@ -649,59 +649,59 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 		}
 	}
 	if n.InvalidationReason != "" {
-		b.WriteString(fmt.Sprintf("  invalidated by: %v — %s\n", n.InvalidatedBy, n.InvalidationReason))
+		fmt.Fprintf(&b, "  invalidated by: %v — %s\n", n.InvalidatedBy, n.InvalidationReason)
 	}
 	if len(n.PoisonedBy) > 0 || n.PoisonReason != "" {
-		b.WriteString(fmt.Sprintf("  poisoned by: %v", n.PoisonedBy))
+		fmt.Fprintf(&b, "  poisoned by: %v", n.PoisonedBy)
 		if n.PoisonReason != "" {
-			b.WriteString(fmt.Sprintf(" — %s", n.PoisonReason))
+			fmt.Fprintf(&b, " — %s", n.PoisonReason)
 		}
 		b.WriteString("\n")
 	}
 	if len(n.RevalidatedBy) > 0 {
-		b.WriteString(fmt.Sprintf("  revalidated by: %v\n", n.RevalidatedBy))
+		fmt.Fprintf(&b, "  revalidated by: %v\n", n.RevalidatedBy)
 	}
 	if latestRun, ok := latestRunMeta(n); ok {
 		b.WriteString("  latest run:\n")
 		if latestRun.Timestamp != "" {
-			b.WriteString(fmt.Sprintf("    timestamp: %s\n", latestRun.Timestamp))
+			fmt.Fprintf(&b, "    timestamp: %s\n", latestRun.Timestamp)
 		}
 		if latestRun.ResourceID != "" {
-			b.WriteString(fmt.Sprintf("    resource:  %s\n", latestRun.ResourceID))
+			fmt.Fprintf(&b, "    resource:  %s\n", latestRun.ResourceID)
 		}
 		if latestRun.Endpoint != "" {
-			b.WriteString(fmt.Sprintf("    endpoint:  %s (%s)\n", latestRun.Endpoint, latestRun.EndpointKind))
+			fmt.Fprintf(&b, "    endpoint:  %s (%s)\n", latestRun.Endpoint, latestRun.EndpointKind)
 		}
 		if latestRun.Host != "" {
-			b.WriteString(fmt.Sprintf("    legacy_host: %s\n", latestRun.Host))
+			fmt.Fprintf(&b, "    legacy_host: %s\n", latestRun.Host)
 		}
 		if latestRun.Command != "" {
-			b.WriteString(fmt.Sprintf("    cmd:       %s\n", latestRun.Command))
+			fmt.Fprintf(&b, "    cmd:       %s\n", latestRun.Command)
 		}
 		if latestRun.OutDir != "" {
-			b.WriteString(fmt.Sprintf("    outdir:    %s\n", latestRun.OutDir))
+			fmt.Fprintf(&b, "    outdir:    %s\n", latestRun.OutDir)
 		}
 		if latestRun.Seed != "" {
-			b.WriteString(fmt.Sprintf("    seed:      %s\n", latestRun.Seed))
+			fmt.Fprintf(&b, "    seed:      %s\n", latestRun.Seed)
 		}
 		if latestRun.ETA != "" {
-			b.WriteString(fmt.Sprintf("    eta:       %s\n", latestRun.ETA))
+			fmt.Fprintf(&b, "    eta:       %s\n", latestRun.ETA)
 		}
 		if latestRun.Cost != "" {
-			b.WriteString(fmt.Sprintf("    cost:      %s\n", latestRun.Cost))
+			fmt.Fprintf(&b, "    cost:      %s\n", latestRun.Cost)
 		}
 		if latestRun.Note != "" {
-			b.WriteString(fmt.Sprintf("    note:      %s\n", latestRun.Note))
+			fmt.Fprintf(&b, "    note:      %s\n", latestRun.Note)
 		}
 		if latestRun.Valid != nil {
-			b.WriteString(fmt.Sprintf("    valid:     %t\n", *latestRun.Valid))
+			fmt.Fprintf(&b, "    valid:     %t\n", *latestRun.Valid)
 		}
 		if latestRun.InvalidReason != "" {
-			b.WriteString(fmt.Sprintf("    invalid:   %s\n", latestRun.InvalidReason))
+			fmt.Fprintf(&b, "    invalid:   %s\n", latestRun.InvalidReason)
 		}
 	}
-	b.WriteString(fmt.Sprintf("  revision: %d\n", n.Revision))
-	b.WriteString(fmt.Sprintf("  created: %s  modified: %s\n", n.Created.Format("2006-01-02 15:04"), n.Modified.Format("2006-01-02 15:04")))
+	fmt.Fprintf(&b, "  revision: %d\n", n.Revision)
+	fmt.Fprintf(&b, "  created: %s  modified: %s\n", n.Created.Format("2006-01-02 15:04"), n.Modified.Format("2006-01-02 15:04"))
 	if full && n.Body != "" {
 		b.WriteString("\n─── body ───\n")
 		b.WriteString(n.Body)
@@ -722,8 +722,8 @@ func formatNodeAgentView(cc *colorizer, n *retree.Node, children []retree.NodeID
 	if cc != nil {
 		title = cc.golden(n.MilestoneClass, title)
 	}
-	b.WriteString(fmt.Sprintf("%04d %s\n", n.ID, title))
-	b.WriteString(fmt.Sprintf("  status: %s  outcome: %s  claim: %s\n", n.Status, n.Outcome, n.ClaimStatus))
+	fmt.Fprintf(&b, "%04d %s\n", n.ID, title)
+	fmt.Fprintf(&b, "  status: %s  outcome: %s  claim: %s\n", n.Status, n.Outcome, n.ClaimStatus)
 	if n.EvidenceStatus != "" && n.EvidenceStatus != retree.EvidenceClean {
 		line := fmt.Sprintf("  evidence: %s", n.EvidenceStatus)
 		if n.EvidenceCause != "" {
@@ -745,83 +745,83 @@ func formatNodeAgentView(cc *colorizer, n *retree.Node, children []retree.NodeID
 		b.WriteString(line + "\n")
 	}
 	if n.Agent != "" {
-		b.WriteString(fmt.Sprintf("  agent: %s\n", n.Agent))
+		fmt.Fprintf(&b, "  agent: %s\n", n.Agent)
 	}
 	if len(n.Tags) > 0 {
-		b.WriteString(fmt.Sprintf("  tags: %s\n", strings.Join(n.Tags, ", ")))
+		fmt.Fprintf(&b, "  tags: %s\n", strings.Join(n.Tags, ", "))
 	}
 	if n.Scope != "" {
-		b.WriteString(fmt.Sprintf("  scope: %s\n", n.Scope))
+		fmt.Fprintf(&b, "  scope: %s\n", n.Scope)
 	}
 	if n.ExitCriteria != "" {
-		b.WriteString(fmt.Sprintf("  exit_criteria: %s\n", n.ExitCriteria))
+		fmt.Fprintf(&b, "  exit_criteria: %s\n", n.ExitCriteria)
 	}
 	if len(n.Parents) > 0 {
 		ids := make([]string, len(n.Parents))
 		for i, p := range n.Parents {
 			ids[i] = fmt.Sprintf("%04d", p)
 		}
-		b.WriteString(fmt.Sprintf("  parents: %s\n", strings.Join(ids, ", ")))
+		fmt.Fprintf(&b, "  parents: %s\n", strings.Join(ids, ", "))
 	}
 	if len(children) > 0 {
 		ids := make([]string, len(children))
 		for i, c := range children {
 			ids[i] = fmt.Sprintf("%04d", c)
 		}
-		b.WriteString(fmt.Sprintf("  children: %s\n", strings.Join(ids, ", ")))
+		fmt.Fprintf(&b, "  children: %s\n", strings.Join(ids, ", "))
 	}
 	if len(n.ContinuedBy) > 0 {
 		ids := make([]string, len(n.ContinuedBy))
 		for i, c := range n.ContinuedBy {
 			ids[i] = fmt.Sprintf("%04d", c)
 		}
-		b.WriteString(fmt.Sprintf("  continued_by: %s\n", strings.Join(ids, ", ")))
+		fmt.Fprintf(&b, "  continued_by: %s\n", strings.Join(ids, ", "))
 	}
 	if len(n.SupersededBy) > 0 {
 		ids := make([]string, len(n.SupersededBy))
 		for i, c := range n.SupersededBy {
 			ids[i] = fmt.Sprintf("%04d", c)
 		}
-		b.WriteString(fmt.Sprintf("  superseded_by: %s\n", strings.Join(ids, ", ")))
+		fmt.Fprintf(&b, "  superseded_by: %s\n", strings.Join(ids, ", "))
 	}
 	if len(leases) > 0 {
 		items := make([]string, 0, len(leases))
 		for _, lease := range leases {
 			items = append(items, fmt.Sprintf("%s[%s]", lease.ResourceID, lease.Mode))
 		}
-		b.WriteString(fmt.Sprintf("  resources: %s\n", strings.Join(items, ", ")))
+		fmt.Fprintf(&b, "  resources: %s\n", strings.Join(items, ", "))
 	}
 	if latestRun, ok := latestRunMeta(n); ok {
 		b.WriteString("  latest_run:\n")
 		if latestRun.ResourceID != "" {
-			b.WriteString(fmt.Sprintf("    resource_id: %s\n", latestRun.ResourceID))
+			fmt.Fprintf(&b, "    resource_id: %s\n", latestRun.ResourceID)
 		}
 		if latestRun.Endpoint != "" {
-			b.WriteString(fmt.Sprintf("    endpoint: %s\n", latestRun.Endpoint))
+			fmt.Fprintf(&b, "    endpoint: %s\n", latestRun.Endpoint)
 		}
 		if latestRun.EndpointKind != "" {
-			b.WriteString(fmt.Sprintf("    endpoint_kind: %s\n", latestRun.EndpointKind))
+			fmt.Fprintf(&b, "    endpoint_kind: %s\n", latestRun.EndpointKind)
 		}
 		if latestRun.Host != "" {
-			b.WriteString(fmt.Sprintf("    legacy_host: %s\n", latestRun.Host))
+			fmt.Fprintf(&b, "    legacy_host: %s\n", latestRun.Host)
 		}
 		if latestRun.Command != "" {
-			b.WriteString(fmt.Sprintf("    cmd: %s\n", latestRun.Command))
+			fmt.Fprintf(&b, "    cmd: %s\n", latestRun.Command)
 		}
 		if latestRun.OutDir != "" {
-			b.WriteString(fmt.Sprintf("    outdir: %s\n", latestRun.OutDir))
+			fmt.Fprintf(&b, "    outdir: %s\n", latestRun.OutDir)
 		}
 		if latestRun.Seed != "" {
-			b.WriteString(fmt.Sprintf("    seed: %s\n", latestRun.Seed))
+			fmt.Fprintf(&b, "    seed: %s\n", latestRun.Seed)
 		}
 		if latestRun.Note != "" {
-			b.WriteString(fmt.Sprintf("    note: %s\n", latestRun.Note))
+			fmt.Fprintf(&b, "    note: %s\n", latestRun.Note)
 		}
 		if latestRun.Valid != nil {
-			b.WriteString(fmt.Sprintf("    valid: %t\n", *latestRun.Valid))
+			fmt.Fprintf(&b, "    valid: %t\n", *latestRun.Valid)
 		}
 		if latestRun.InvalidReason != "" {
-			b.WriteString(fmt.Sprintf("    invalid_reason: %s\n", latestRun.InvalidReason))
+			fmt.Fprintf(&b, "    invalid_reason: %s\n", latestRun.InvalidReason)
 		}
 	}
 	body := strings.TrimSpace(n.Body)
@@ -833,13 +833,13 @@ func formatNodeAgentView(cc *colorizer, n *retree.Node, children []retree.NodeID
 		if len(firstLine) > 140 {
 			firstLine = firstLine[:137] + "..."
 		}
-		b.WriteString(fmt.Sprintf("  summary: %s\n", firstLine))
+		fmt.Fprintf(&b, "  summary: %s\n", firstLine)
 	}
 	if len(n.Artifacts) > 0 {
-		b.WriteString(fmt.Sprintf("  artifacts: %d\n", len(n.Artifacts)))
+		fmt.Fprintf(&b, "  artifacts: %d\n", len(n.Artifacts))
 	}
 	if len(n.Commits) > 0 {
-		b.WriteString(fmt.Sprintf("  commits: %d\n", len(n.Commits)))
+		fmt.Fprintf(&b, "  commits: %d\n", len(n.Commits))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

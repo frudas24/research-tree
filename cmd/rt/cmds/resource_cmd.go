@@ -215,7 +215,7 @@ func newResourceListCmd(opts *RootOptions) *cobra.Command {
 				case leaseCount[resource.ID] > 0:
 					state = "used"
 				}
-				b.WriteString(fmt.Sprintf("%s [%s] %s (%s)\n", resource.ID, resource.Kind, resource.Label, state))
+				fmt.Fprintf(&b, "%s [%s] %s (%s)\n", resource.ID, resource.Kind, resource.Label, state)
 			}
 			return printMaybeJSON(cmd, false, nil, b.String())
 		},
@@ -260,18 +260,18 @@ func newResourceShowCmd(opts *RootOptions) *cobra.Command {
 				return printMaybeJSON(cmd, true, map[string]any{"resource": resource, "leases": active, "events": events}, "")
 			}
 			var b strings.Builder
-			b.WriteString(fmt.Sprintf("%s [%s] %s\n", resource.ID, resource.Kind, resource.Label))
+			fmt.Fprintf(&b, "%s [%s] %s\n", resource.ID, resource.Kind, resource.Label)
 			if resource.Endpoint != "" {
-				b.WriteString(fmt.Sprintf("  endpoint: %s (%s)\n", resource.Endpoint, resource.EndpointKind))
+				fmt.Fprintf(&b, "  endpoint: %s (%s)\n", resource.Endpoint, resource.EndpointKind)
 			}
 			if len(resource.Tags) > 0 {
-				b.WriteString(fmt.Sprintf("  tags: %s\n", strings.Join(resource.Tags, ", ")))
+				fmt.Fprintf(&b, "  tags: %s\n", strings.Join(resource.Tags, ", "))
 			}
-			b.WriteString(fmt.Sprintf("  enabled: %t  maintenance: %t  capacity: %d\n", resource.Enabled, resource.Maintenance, resource.Capacity))
+			fmt.Fprintf(&b, "  enabled: %t  maintenance: %t  capacity: %d\n", resource.Enabled, resource.Maintenance, resource.Capacity)
 			if len(active) > 0 {
 				b.WriteString("  active leases:\n")
 				for _, lease := range active {
-					b.WriteString(fmt.Sprintf("    - node %04d [%s] by %s\n", lease.NodeID, lease.Mode, lease.ClaimedBy))
+					fmt.Fprintf(&b, "    - node %04d [%s] by %s\n", lease.NodeID, lease.Mode, lease.ClaimedBy)
 				}
 			}
 			if len(events) > 0 {
@@ -281,7 +281,7 @@ func newResourceShowCmd(opts *RootOptions) *cobra.Command {
 					start = len(events) - 5
 				}
 				for _, event := range events[start:] {
-					b.WriteString(fmt.Sprintf("    - %s node %04d %s at %s\n", event.Action, event.NodeID, event.Mode, event.Timestamp.Format(time.RFC3339)))
+					fmt.Fprintf(&b, "    - %s node %04d %s at %s\n", event.Action, event.NodeID, event.Mode, event.Timestamp.Format(time.RFC3339))
 				}
 			}
 			return printMaybeJSON(cmd, false, nil, b.String())
@@ -390,7 +390,7 @@ func newResourceReportCmd(opts *RootOptions) *cobra.Command {
 					free++
 				}
 			}
-			b.WriteString(fmt.Sprintf("free: %d | used: %d | maintenance: %d | disabled: %d\n\n", free, used, maintenance, disabled))
+			fmt.Fprintf(&b, "free: %d | used: %d | maintenance: %d | disabled: %d\n\n", free, used, maintenance, disabled)
 			renderResourceSection(&b, "USED", resources, grouped, func(r retree.Resource) bool { return len(grouped[r.ID]) > 0 && r.Enabled && !r.Maintenance })
 			renderResourceSection(&b, "FREE", resources, grouped, func(r retree.Resource) bool { return len(grouped[r.ID]) == 0 && r.Enabled && !r.Maintenance })
 			renderResourceSection(&b, "MAINTENANCE", resources, grouped, func(r retree.Resource) bool { return r.Maintenance })
@@ -440,7 +440,7 @@ func newResourceHistoryCmd(opts *RootOptions) *cobra.Command {
 				if strings.TrimSpace(event.Reason) != "" {
 					reason = fmt.Sprintf(" reason=%q", event.Reason)
 				}
-				b.WriteString(fmt.Sprintf("%s %s %s (%s)%s%s\n", event.Timestamp.Format(time.RFC3339), event.Action, label, event.Mode, by, reason))
+				fmt.Fprintf(&b, "%s %s %s (%s)%s%s\n", event.Timestamp.Format(time.RFC3339), event.Action, label, event.Mode, by, reason)
 			}
 			return printMaybeJSON(cmd, false, nil, b.String())
 		},
@@ -482,9 +482,9 @@ func renderResourceSection(b *strings.Builder, title string, resources []retree.
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	b.WriteString(title + "\n")
 	for _, resource := range items {
-		b.WriteString(fmt.Sprintf("- %s [%s] %s\n", resource.ID, resource.Kind, resource.Label))
+		fmt.Fprintf(b, "- %s [%s] %s\n", resource.ID, resource.Kind, resource.Label)
 		for _, lease := range grouped[resource.ID] {
-			b.WriteString(fmt.Sprintf("  node: #%04d mode=%s by=%s since=%s\n", lease.NodeID, lease.Mode, lease.ClaimedBy, lease.ClaimedAt.UTC().Format("2006-01-02 15:04 UTC")))
+			fmt.Fprintf(b, "  node: #%04d mode=%s by=%s since=%s\n", lease.NodeID, lease.Mode, lease.ClaimedBy, lease.ClaimedAt.UTC().Format("2006-01-02 15:04 UTC"))
 		}
 	}
 	b.WriteString("\n")

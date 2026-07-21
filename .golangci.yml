@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
   tests: true
@@ -10,28 +12,24 @@ linters:
     - ineffassign
     - revive
     - unused
-    - gosimple
     - gocritic
-    - stylecheck
-
-linters-settings:
-  govet:
-    enable:
-      - unusedwrite
-  revive:
-    rules:
-      - name: exported
-        disabled: true
+  settings:
+    govet:
+      enable:
+        - unusedwrite
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    paths:
+      - dist
+      - vendor
+      - .gocache
+      - .golangci-cache
+      - ".*\\.pb\\.go"
+      - "cmd/rt-bridge/main.go"
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 10
-  exclude-use-default: false
-  exclude-dirs:
-    - dist
-    - vendor
-    - .gocache
-    - .golangci-cache
-  exclude-files:
-    - ".*\\.pb\\.go"
-    - "cmd/rt-bridge/main.go"

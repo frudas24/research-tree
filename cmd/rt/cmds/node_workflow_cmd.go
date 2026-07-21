@@ -189,40 +189,40 @@ func renderRunMetaBlock(run retree.RunRecord) string {
 	b.WriteString(" UTC\n")
 	b.WriteString("```yaml\n")
 	if run.ResourceID != "" {
-		b.WriteString(fmt.Sprintf("resource_id: %q\n", run.ResourceID))
+		fmt.Fprintf(&b, "resource_id: %q\n", run.ResourceID)
 	}
 	if run.Endpoint != "" {
-		b.WriteString(fmt.Sprintf("endpoint: %q\n", run.Endpoint))
+		fmt.Fprintf(&b, "endpoint: %q\n", run.Endpoint)
 	}
 	if run.EndpointKind != "" && run.EndpointKind != retree.EndpointNone {
-		b.WriteString(fmt.Sprintf("endpoint_kind: %q\n", run.EndpointKind))
+		fmt.Fprintf(&b, "endpoint_kind: %q\n", run.EndpointKind)
 	}
 	if run.Host != "" {
-		b.WriteString(fmt.Sprintf("legacy_host: %q\n", run.Host))
+		fmt.Fprintf(&b, "legacy_host: %q\n", run.Host)
 	}
 	if run.Command != "" {
-		b.WriteString(fmt.Sprintf("cmd: %q\n", run.Command))
+		fmt.Fprintf(&b, "cmd: %q\n", run.Command)
 	}
 	if run.OutDir != "" {
-		b.WriteString(fmt.Sprintf("outdir: %q\n", run.OutDir))
+		fmt.Fprintf(&b, "outdir: %q\n", run.OutDir)
 	}
 	if run.Seed != "" {
-		b.WriteString(fmt.Sprintf("seed: %q\n", run.Seed))
+		fmt.Fprintf(&b, "seed: %q\n", run.Seed)
 	}
 	if run.ETA != "" {
-		b.WriteString(fmt.Sprintf("eta: %q\n", run.ETA))
+		fmt.Fprintf(&b, "eta: %q\n", run.ETA)
 	}
 	if run.Cost != "" {
-		b.WriteString(fmt.Sprintf("cost: %q\n", run.Cost))
+		fmt.Fprintf(&b, "cost: %q\n", run.Cost)
 	}
 	if run.Note != "" {
-		b.WriteString(fmt.Sprintf("note: %q\n", run.Note))
+		fmt.Fprintf(&b, "note: %q\n", run.Note)
 	}
 	if run.Valid != nil {
-		b.WriteString(fmt.Sprintf("valid: %t\n", *run.Valid))
+		fmt.Fprintf(&b, "valid: %t\n", *run.Valid)
 	}
 	if run.InvalidReason != "" {
-		b.WriteString(fmt.Sprintf("invalid_reason: %q\n", run.InvalidReason))
+		fmt.Fprintf(&b, "invalid_reason: %q\n", run.InvalidReason)
 	}
 	b.WriteString("```\n")
 	return b.String()

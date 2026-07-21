@@ -38,7 +38,7 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 		fd, err := os.OpenFile(s.lockPath(), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
 			info := lockInfo{PID: os.Getpid(), Host: "local", Timestamp: time.Now().UTC(), Operation: operation, Owner: "local"}
-			_, werr := fd.WriteString(fmt.Sprintf("pid: %d\nhost: %q\ntimestamp: %q\noperation: %q\nowner: %q\n", info.PID, info.Host, info.Timestamp.Format(time.RFC3339), info.Operation, info.Owner))
+			_, werr := fmt.Fprintf(fd, "pid: %d\nhost: %q\ntimestamp: %q\noperation: %q\nowner: %q\n", info.PID, info.Host, info.Timestamp.Format(time.RFC3339), info.Operation, info.Owner)
 			cerr := fd.Close()
 			if werr != nil {
 				_ = os.Remove(s.lockPath())

@@ -466,7 +466,7 @@ func (s *Store) enforceLeaseCapacity(resource Resource, leases []ResourceLease, 
 	}
 	active := make([]ResourceLease, 0)
 	for _, lease := range leases {
-		if lease.ResourceID == resource.ID && !(lease.NodeID == candidate.NodeID && lease.ResourceID == candidate.ResourceID) {
+		if lease.ResourceID == resource.ID && lease.NodeID != candidate.NodeID {
 			active = append(active, lease)
 		}
 	}

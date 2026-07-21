@@ -323,7 +323,9 @@ func (s *Store) loadFeatureEdges() ([]FeatureEdge, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	var out []FeatureEdge
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
