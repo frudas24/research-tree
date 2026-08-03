@@ -154,6 +154,28 @@ active ▶ — working on this
 5. **Add artifacts for concrete outputs.** Calibration paths, model files, experiment directories.
 6. **Don't skip data.** Every significant fact from the research log goes into a node body.
 7. **Use `--body` inline for short bodies, `--edit` for long ones.**
+8. **Preserve the objection, not only the endpoint.** If a claim narrowed after a bad assumption, failed run, or audit objection, keep that pressure visible instead of flattening the story into a single triumphant sentence.
+9. **Do not create a node just to prove work happened.** A node should reduce uncertainty, preserve a claim boundary, or capture a reusable operation.
+
+## Why this changes agent behavior
+
+RT is not only memory for facts. It is memory for failed overreach.
+
+When the graph makes sloppy claims expensive, agent behavior changes:
+
+- inflated claim -> longer audit -> correction -> delayed closure
+- scoped claim -> localized proof -> defendable closure
+
+Over time, agents start anticipating the auditor:
+
+- is this really gained?
+- am I confusing existence with authority?
+- is the absence actually demonstrated?
+- did the report go green for the right reason?
+- is this a node, or just campaign exhaust?
+
+That is the value of RT as institutional memory: the objection can outlive the
+agent, the session, and the compacted context.
 
 ## When to use each flag
 

@@ -25,6 +25,12 @@ Keep research tracking reliable, reproducible, and auditable.
    If intent changes, create a child node, reparent explicitly, or append a note.
 7. **Prefer structured scans before deep dives.**
    Use `status`, `list`, `ancestors`, `descendants`, then `show`.
+8. **Preserve the objection, not just the closure.**
+   If a claim narrowed after a failed assumption or audit objection, record that
+   pressure instead of flattening the history into one green sentence.
+9. **A node must earn its existence.**
+   Open a node when it reduces architectural uncertainty or captures a reusable
+   operation, not merely to prove that work happened.
 
 ## 3) Start-of-task checklist
 
@@ -120,6 +126,8 @@ If a resource operation fails with `resource busy`, the error names the blocking
 
 - Parent must answer: **what prior claim, run, or decision does this depend on?**
 - Avoid attaching new execution work to broad executive/root nodes when a recent technical parent exists.
+- Do not create nodes for campaign exhaust, retries, or clerical churn when a
+  run record, artifact, commit, or appended note is enough.
 - Reparent explicitly when branch meaning changes:
 
 ```bash
@@ -149,6 +157,13 @@ For CLI behavior changes, include at least:
 - one happy-path command
 - one negative-path command
 - JSON mode sanity where applicable
+
+Before closing a node, ask:
+
+- Is this result merely present, or actually authoritative?
+- Did we prove the absence/failure, or only stop seeing evidence?
+- Did a past objection get resolved, or merely disappear from short-term context?
+- Is the claim scoped tightly enough that another agent cannot overgeneralize it later?
 
 ## 8) Compact context handoff pattern
 
@@ -227,6 +242,13 @@ Current scope-writing discipline:
 - include model, dataset, decode mode, hardware target, or parameter regime in `--scope`
 - avoid universal wording like "works" when the claim only holds for one configuration
 
+Current anti-self-deception discipline:
+
+- do not confuse materialization with authority
+- do not confuse a green report with revalidable evidence
+- do not treat a partial rollback as proof of transactional publication
+- when an objection forced a narrower claim, keep that objection visible in the node
+
 ## 11) Pitfalls to avoid
 
 - Marking `done` with `outcome=unset`
@@ -235,6 +257,7 @@ Current scope-writing discipline:
 - Ambiguous parent title matching when numeric IDs are available
 - Treating parent edges as “related to” instead of true dependency
 - Writing broad claims without stating setup, model, dataset, or decode conditions
+- Opening nodes that only register effort rather than reducing uncertainty or preserving a reusable mechanism
 
 ## 12) Reference
 

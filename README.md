@@ -47,6 +47,20 @@ Research Tree gives you a DAG, not a timeline. Every node knows its parents,
 its children, its continuations, and its replacements. You navigate the
 structure of your thinking, not the order you typed it in.
 
+It also preserves something ordinary tools usually lose: the pressure behind a
+conclusion. Git remembers code changes. Tests remember expectations. Issue
+trackers remember tasks. RT remembers a harder chain:
+
+- what we tried to claim
+- why we thought it was true
+- what objection broke that claim
+- how the claim had to narrow
+- what evidence actually survived
+
+That is why RT behaves more like scientific memory than a tracker. It keeps old
+objections alive long enough to discipline future work, instead of forcing each
+new agent to relearn the same caution from scratch.
+
 > It was born from tracking 19+ sequential log files during LLM prompt
 > research. When backtracking to a three-week-old experiment took longer than
 > running it again, the tool became necessary.
@@ -116,6 +130,17 @@ up." A claim with `superseded_by=[12]` says "this conclusion was valid at the
 time, but node 12 has a better one." A node with `--relation compares_against:5`
 links to a baseline without polluting the parent lineage. No information is destroyed.
 
+Another useful framing:
+
+- **Map**: where a capability came from
+- **Compass**: what frontier is legitimate next
+- **Constraint**: what we still cannot honestly claim
+- **Adversarial memory**: where we almost closed too early, and why that was wrong
+
+The fourth function is what makes RT unusually sticky in long research loops.
+It does not just remember wins; it remembers where the project nearly lied to
+itself.
+
 ---
 
 ## Key features
@@ -141,6 +166,9 @@ links to a baseline without polluting the parent lineage. No information is dest
   database, no server, no daemon. Back up with `rsync`.
 - **Agent-ready.** Both a Go ABI (`pkg/retree`) and a structured CLI for
   external tooling. Designed to be embedded.
+- **Institutional memory.** Objections, poisoned evidence, superseded claims,
+  and narrowed conclusions survive agent handoffs, context compaction, and long
+  gaps in attention.
 - **Typed relations.** Beyond parent-child: `compares_against`, `inspired_by`,
   `depends_on`, and `aggregates` keep the DAG clean without abusing `--parents`.
 - **Feature lineage.** Features group many nodes into one living project entity,
@@ -401,8 +429,12 @@ having to remember what happened three weeks ago.
   must cite a refuter node.
 - **The graph preserves history.** Nothing is overwritten. Every revision is
   stored. Every superseded claim stays visible.
+- **Preserve pressure, not only the slogan.** Keep the objection, failed
+  assumption, or narrowed boundary that made a later claim defensible.
 - **Simplicity over features.** Three statuses. Three outcomes. Four claim
   states. If a concept doesn't earn its place in the graph, it doesn't go in.
+- **Methodological accumulation.** A past objection should become a present
+  habit, not a forgotten anecdote.
 - **Portable by design.** `.research/` is a directory. Move it, back it up,
   version it. No migrations, no servers, no lock-in.
 
