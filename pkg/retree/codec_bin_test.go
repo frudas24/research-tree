@@ -203,6 +203,18 @@ func TestBinaryRoundtripEmptyBody(t *testing.T) {
 	}
 }
 
+// writeStringLegacy ignores the impossible length error while building
+// legacy-format fixtures with short strings.
+func writeStringLegacy(buf *bytes.Buffer, s string) {
+	_ = binWriteString(buf, s)
+}
+
+// writeString32Legacy ignores the impossible length error while building
+// legacy-format fixtures with short strings.
+func writeString32Legacy(buf *bytes.Buffer, s string) {
+	_ = binWriteString32(buf, s)
+}
+
 // marshalNodeBinaryLegacyV1 encodes the pre-semantic-extension binary payload.
 func marshalNodeBinaryLegacyV1(n *Node) ([]byte, error) {
 	if n == nil {
@@ -211,35 +223,35 @@ func marshalNodeBinaryLegacyV1(n *Node) ([]byte, error) {
 	var buf bytes.Buffer
 	binWriteU16(&buf, uint16(n.SchemaVersion))
 	binWriteU64(&buf, uint64(n.ID))
-	binWriteString(&buf, n.Title)
+	writeStringLegacy(&buf, n.Title)
 	binWriteU8(&buf, statusToBin[n.Status])
 	binWriteU8(&buf, claimToBin[n.ClaimStatus])
 	binWriteU8(&buf, outcomeToBin[n.Outcome])
 	binWriteU64Slice(&buf, n.Parents)
-	binWriteString(&buf, n.Agent)
+	writeStringLegacy(&buf, n.Agent)
 	binWriteU16(&buf, uint16(len(n.Tags)))
 	for _, t := range n.Tags {
-		binWriteString(&buf, t)
+		writeStringLegacy(&buf, t)
 	}
 	binWriteI64(&buf, timeToBin(n.Created))
 	binWriteI64(&buf, timeToBin(n.Modified))
 	binWriteU64(&buf, n.Revision)
 	binWriteU16(&buf, uint16(len(n.Commits)))
 	for _, c := range n.Commits {
-		binWriteString(&buf, c.Hash)
-		binWriteString32(&buf, c.Message)
+		writeStringLegacy(&buf, c.Hash)
+		writeString32Legacy(&buf, c.Message)
 	}
 	binWriteU16(&buf, uint16(len(n.Artifacts)))
 	for _, a := range n.Artifacts {
 		binWriteU8(&buf, artifactModeToBin[a.Mode])
-		binWriteString(&buf, a.Host)
-		binWriteString(&buf, a.Path)
-		binWriteString(&buf, a.Description)
+		writeStringLegacy(&buf, a.Host)
+		writeStringLegacy(&buf, a.Path)
+		writeStringLegacy(&buf, a.Description)
 		binWriteI64(&buf, a.SizeBytes)
 	}
 	binWriteU64Slice(&buf, n.InvalidatedBy)
-	binWriteString(&buf, n.InvalidationReason)
-	binWriteString32(&buf, n.Body)
+	writeStringLegacy(&buf, n.InvalidationReason)
+	writeString32Legacy(&buf, n.Body)
 	return buf.Bytes(), nil
 }
 
@@ -251,49 +263,49 @@ func marshalNodeBinaryPhase3(n *Node) ([]byte, error) {
 	var buf bytes.Buffer
 	binWriteU16(&buf, uint16(n.SchemaVersion))
 	binWriteU64(&buf, uint64(n.ID))
-	binWriteString(&buf, n.Title)
+	writeStringLegacy(&buf, n.Title)
 	binWriteU8(&buf, statusToBin[n.Status])
 	binWriteU8(&buf, claimToBin[n.ClaimStatus])
 	binWriteU8(&buf, outcomeToBin[n.Outcome])
 	binWriteU64Slice(&buf, n.Parents)
-	binWriteString(&buf, n.Agent)
+	writeStringLegacy(&buf, n.Agent)
 	binWriteU16(&buf, uint16(len(n.Tags)))
 	for _, t := range n.Tags {
-		binWriteString(&buf, t)
+		writeStringLegacy(&buf, t)
 	}
 	binWriteI64(&buf, timeToBin(n.Created))
 	binWriteI64(&buf, timeToBin(n.Modified))
 	binWriteU64(&buf, n.Revision)
 	binWriteU16(&buf, uint16(len(n.Commits)))
 	for _, c := range n.Commits {
-		binWriteString(&buf, c.Hash)
-		binWriteString32(&buf, c.Message)
+		writeStringLegacy(&buf, c.Hash)
+		writeString32Legacy(&buf, c.Message)
 	}
 	binWriteU16(&buf, uint16(len(n.Artifacts)))
 	for _, a := range n.Artifacts {
 		binWriteU8(&buf, artifactModeToBin[a.Mode])
-		binWriteString(&buf, a.Host)
-		binWriteString(&buf, a.Path)
-		binWriteString(&buf, a.Description)
+		writeStringLegacy(&buf, a.Host)
+		writeStringLegacy(&buf, a.Path)
+		writeStringLegacy(&buf, a.Description)
 		binWriteI64(&buf, a.SizeBytes)
 	}
 	binWriteU64Slice(&buf, n.InvalidatedBy)
-	binWriteString(&buf, n.InvalidationReason)
-	binWriteString32(&buf, n.Body)
-	binWriteString32(&buf, n.Scope)
-	binWriteString32(&buf, n.ExitCriteria)
+	writeStringLegacy(&buf, n.InvalidationReason)
+	writeString32Legacy(&buf, n.Body)
+	writeString32Legacy(&buf, n.Scope)
+	writeString32Legacy(&buf, n.ExitCriteria)
 	binWriteU64Slice(&buf, n.ContinuedBy)
 	binWriteU64Slice(&buf, n.SupersededBy)
 	binWriteU16(&buf, uint16(len(n.Runs)))
 	for _, r := range n.Runs {
 		binWriteI64(&buf, timeToBin(r.Timestamp))
-		binWriteString32(&buf, r.Host)
-		binWriteString32(&buf, r.Command)
-		binWriteString32(&buf, r.OutDir)
-		binWriteString32(&buf, r.Seed)
-		binWriteString32(&buf, r.ETA)
-		binWriteString32(&buf, r.Cost)
-		binWriteString32(&buf, r.Note)
+		writeString32Legacy(&buf, r.Host)
+		writeString32Legacy(&buf, r.Command)
+		writeString32Legacy(&buf, r.OutDir)
+		writeString32Legacy(&buf, r.Seed)
+		writeString32Legacy(&buf, r.ETA)
+		writeString32Legacy(&buf, r.Cost)
+		writeString32Legacy(&buf, r.Note)
 	}
 	return buf.Bytes(), nil
 }

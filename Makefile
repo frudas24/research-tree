@@ -118,7 +118,7 @@ commentlint:
 # --- Install lint tool ---
 tools:
 	@echo "⬇️  installing golangci-lint@$(GOLANGCI_LINT_VER)"
-	@$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VER)
+	@$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VER)
 
 # --- Tests ---
 test:

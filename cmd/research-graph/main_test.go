@@ -54,7 +54,7 @@ func TestGraphHandlerReturnsPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -98,7 +98,7 @@ func TestNodeHandlerReturnsDetail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -131,7 +131,7 @@ func TestGraphHandlerSurfacesStoreErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 (storage error must not render as empty graph)", resp.StatusCode)
 	}
@@ -151,7 +151,7 @@ func TestNodeHandlerDistinguishesNotFoundFromStorageError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("missing node status = %d, want 404", resp.StatusCode)
 	}
@@ -164,7 +164,7 @@ func TestNodeHandlerDistinguishesNotFoundFromStorageError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("broken store status = %d, want 500", resp.StatusCode)
 	}
