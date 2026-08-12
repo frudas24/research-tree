@@ -70,8 +70,9 @@ const lib = dlopen(libPath, {
   retree_get_roots:       { args: [FFIType.ptr], returns: FFIType.cstring },
 
   // ── Queries ────────────────────────────────────────────────
-  retree_query_nodes: { args: [FFIType.ptr, FFIType.cstring], returns: FFIType.cstring },
-  retree_get_status:  { args: [FFIType.ptr, FFIType.cstring], returns: FFIType.cstring },
+  retree_query_nodes:     { args: [FFIType.ptr, FFIType.cstring], returns: FFIType.cstring },
+  retree_get_status:      { args: [FFIType.ptr, FFIType.cstring], returns: FFIType.cstring },
+  retree_derived_progress: { args: [FFIType.ptr, FFIType.u64_fast], returns: FFIType.cstring },
 
   // ── Tags / parents ─────────────────────────────────────────
   retree_add_tags:       { args: [FFIType.ptr, FFIType.u64_fast, FFIType.cstring], returns: FFIType.cstring },
@@ -119,6 +120,7 @@ type NativeHandle = Exclude<ReturnType<typeof lib.symbols.retree_init>, null | u
 
 // ── TypeScript types ─────────────────────────────────────────
 
+export type NodeKind = "work" | "umbrella";
 export type NodeStatus = "active" | "done" | "paused";
 export type Outcome = "unset" | "success" | "failure" | "inconclusive";
 export type ClaimStatus = "provisional" | "validated" | "invalidated" | "superseded";
@@ -182,6 +184,7 @@ export interface Node {
   schema_version: number;
   id: number;
   title: string;
+  kind?: NodeKind;
   status: NodeStatus;
   claim_status?: ClaimStatus;
   evidence_status?: EvidenceStatus;
@@ -217,6 +220,7 @@ export interface Node {
 export interface NodeSummary {
   id: number;
   title: string;
+  kind?: NodeKind;
   status: NodeStatus;
   outcome?: Outcome;
   claim_status: ClaimStatus;
@@ -255,6 +259,25 @@ export interface HotspotSummary {
   hotness: number;
 }
 
+export interface UmbrellaPressureEntry {
+  id: number;
+  title: string;
+  agent: string;
+  active: number;
+  paused: number;
+  unresolved: number;
+}
+
+export interface UmbrellaProgress {
+  direct_children: number;
+  work_children: number;
+  umbrella_children: number;
+  active: number;
+  done: number;
+  paused: number;
+  actionable_leaves: number[];
+}
+
 export interface StatusSummary {
   total: number;
   active: NodeSummary[];
@@ -269,6 +292,12 @@ export interface StatusSummary {
   matrix: Record<string, Record<string, number>>;
   hotspot_formula: string;
   hotspots: HotspotSummary[];
+  work_status_counts: Record<string, number>;
+  umbrella_status_counts: Record<string, number>;
+  umbrella_active: NodeSummary[];
+  umbrella_done: NodeSummary[];
+  umbrella_paused: NodeSummary[];
+  umbrella_pressure: UmbrellaPressureEntry[];
 }
 
 export interface ResourceSpec {
@@ -390,6 +419,7 @@ export interface FeatureGraph {
 
 export interface NodeCreateInput {
   title: string;
+  kind?: NodeKind;
   status?: NodeStatus;
   claim_status?: ClaimStatus;
   evidence_status?: EvidenceStatus;
@@ -412,6 +442,7 @@ export interface NodeCreateInput {
 export type NodeUpdateInput = Partial<NodeCreateInput> & { id: number };
 
 export interface NodeFilter {
+  kind?: NodeKind;
   status?: NodeStatus;
   claim_status?: ClaimStatus;
   evidence_status?: EvidenceStatus;
@@ -620,6 +651,10 @@ export class RetreeClient {
 
   getStatus(agent: string = ""): StatusSummary {
     return call(() => lib.symbols.retree_get_status(this.handle!, toPtr(agent)));
+  }
+
+  derivedProgress(id: number): UmbrellaProgress {
+    return call(() => lib.symbols.retree_derived_progress(this.handle!, id));
   }
 
   // ── Tags / parents ─────────────────────────────────────────

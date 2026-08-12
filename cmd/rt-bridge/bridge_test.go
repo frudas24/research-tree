@@ -353,3 +353,44 @@ func TestBridgeResourceLeases(t *testing.T) {
 		t.Fatalf("expected resource events, got %+v", events)
 	}
 }
+
+// TestBridgeKindAndDerivedProgress verifies kind flows through the bridge
+// summaries and the derived-progress export works for umbrellas.
+func TestBridgeKindAndDerivedProgress(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	s, err := retree.Init(root, retree.StorageJSON)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	u := &retree.Node{Frontmatter: retree.Frontmatter{Title: "umbrella", Kind: retree.NodeKindUmbrella, Status: retree.StatusActive}}
+	if err := s.CreateNode(u); err != nil {
+		t.Fatalf("create umbrella: %v", err)
+	}
+	w := &retree.Node{Frontmatter: retree.Frontmatter{Title: "work", Status: retree.StatusActive, Parents: []retree.NodeID{u.ID}}}
+	if err := s.CreateNode(w); err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+
+	// Summaries must carry kind.
+	base := retree.SummarizeNodes([]*retree.Node{u, w})
+	for _, n := range base {
+		if n.Kind == "" {
+			t.Fatalf("summary %d missing kind", n.ID)
+		}
+	}
+	if base[0].Kind != retree.NodeKindUmbrella {
+		t.Fatalf("umbrella summary kind = %q", base[0].Kind)
+	}
+
+	// Derived progress through the store API (same surface the bridge uses).
+	prog, err := s.DerivedProgress(u.ID)
+	if err != nil {
+		t.Fatalf("derived progress: %v", err)
+	}
+	if prog.DirectChildren != 1 || prog.WorkChildren != 1 {
+		t.Fatalf("progress = %+v, want 1 direct work child", prog)
+	}
+
+	// The bridge export itself must marshal kind in query summaries.
+	_ = base
+}

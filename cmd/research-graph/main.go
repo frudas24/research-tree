@@ -114,6 +114,7 @@ func newMux(store *retree.Store) *http.ServeMux {
 type GraphNode struct {
 	ID              uint64   `json:"id"`
 	Title           string   `json:"title"`
+	Kind            string   `json:"kind,omitempty"`
 	Status          string   `json:"status"`
 	ClaimStatus     string   `json:"claim_status"`
 	EvidenceStatus  string   `json:"evidence_status"`
@@ -131,42 +132,44 @@ type GraphNode struct {
 }
 
 type NodeDetail struct {
-	ID                 uint64        `json:"id"`
-	Title              string        `json:"title"`
-	Status             string        `json:"status"`
-	ClaimStatus        string        `json:"claim_status"`
-	EvidenceStatus     string        `json:"evidence_status"`
-	EvidenceCause      string        `json:"evidence_cause,omitempty"`
-	EvidenceScope      string        `json:"evidence_scope,omitempty"`
-	Outcome            string        `json:"outcome"`
-	MilestoneClass     string        `json:"milestone_class,omitempty"`
-	MilestoneKind      string        `json:"milestone_kind,omitempty"`
-	MilestoneReason    string        `json:"milestone_reason,omitempty"`
-	Agent              string        `json:"agent,omitempty"`
-	Scope              string        `json:"scope,omitempty"`
-	ExitCriteria       string        `json:"exit_criteria,omitempty"`
-	Created            string        `json:"created,omitempty"`
-	Modified           string        `json:"modified,omitempty"`
-	Revision           uint64        `json:"revision"`
-	Tags               []string      `json:"tags,omitempty"`
-	Parents            []uint64      `json:"parents,omitempty"`
-	Children           []uint64      `json:"children,omitempty"`
-	PendingChildren    int           `json:"pending_children"`
-	PrimaryParent      *uint64       `json:"primary_parent,omitempty"`
-	ContinuedBy        []uint64      `json:"continued_by,omitempty"`
-	SupersededBy       []uint64      `json:"superseded_by,omitempty"`
-	InvalidatedBy      []uint64      `json:"invalidated_by,omitempty"`
-	PoisonedBy         []uint64      `json:"poisoned_by,omitempty"`
-	RevalidatedBy      []uint64      `json:"revalidated_by,omitempty"`
-	InvalidationReason string        `json:"invalidation_reason,omitempty"`
-	PoisonReason       string        `json:"poison_reason,omitempty"`
-	Relations          []RelationDTO `json:"relations,omitempty"`
-	RelationOf         []RelationDTO `json:"relation_of,omitempty"`
-	RunsCount          int           `json:"runs_count"`
-	ArtifactsCount     int           `json:"artifacts_count"`
-	CommitsCount       int           `json:"commits_count"`
-	Body               string        `json:"body,omitempty"`
-	Hotness            int           `json:"hotness"`
+	ID                 uint64                   `json:"id"`
+	Title              string                   `json:"title"`
+	Kind               string                   `json:"kind,omitempty"`
+	Progress           *retree.UmbrellaProgress `json:"progress,omitempty"`
+	Status             string                   `json:"status"`
+	ClaimStatus        string                   `json:"claim_status"`
+	EvidenceStatus     string                   `json:"evidence_status"`
+	EvidenceCause      string                   `json:"evidence_cause,omitempty"`
+	EvidenceScope      string                   `json:"evidence_scope,omitempty"`
+	Outcome            string                   `json:"outcome"`
+	MilestoneClass     string                   `json:"milestone_class,omitempty"`
+	MilestoneKind      string                   `json:"milestone_kind,omitempty"`
+	MilestoneReason    string                   `json:"milestone_reason,omitempty"`
+	Agent              string                   `json:"agent,omitempty"`
+	Scope              string                   `json:"scope,omitempty"`
+	ExitCriteria       string                   `json:"exit_criteria,omitempty"`
+	Created            string                   `json:"created,omitempty"`
+	Modified           string                   `json:"modified,omitempty"`
+	Revision           uint64                   `json:"revision"`
+	Tags               []string                 `json:"tags,omitempty"`
+	Parents            []uint64                 `json:"parents,omitempty"`
+	Children           []uint64                 `json:"children,omitempty"`
+	PendingChildren    int                      `json:"pending_children"`
+	PrimaryParent      *uint64                  `json:"primary_parent,omitempty"`
+	ContinuedBy        []uint64                 `json:"continued_by,omitempty"`
+	SupersededBy       []uint64                 `json:"superseded_by,omitempty"`
+	InvalidatedBy      []uint64                 `json:"invalidated_by,omitempty"`
+	PoisonedBy         []uint64                 `json:"poisoned_by,omitempty"`
+	RevalidatedBy      []uint64                 `json:"revalidated_by,omitempty"`
+	InvalidationReason string                   `json:"invalidation_reason,omitempty"`
+	PoisonReason       string                   `json:"poison_reason,omitempty"`
+	Relations          []RelationDTO            `json:"relations,omitempty"`
+	RelationOf         []RelationDTO            `json:"relation_of,omitempty"`
+	RunsCount          int                      `json:"runs_count"`
+	ArtifactsCount     int                      `json:"artifacts_count"`
+	CommitsCount       int                      `json:"commits_count"`
+	Body               string                   `json:"body,omitempty"`
+	Hotness            int                      `json:"hotness"`
 }
 
 type RelationDTO struct {
@@ -218,20 +221,23 @@ func buildGraphPayload(store *retree.Store) (GraphPayload, error) {
 	for _, n := range nodes {
 		children := childrenByParent[n.ID]
 		pending := countPending(nodes, children)
-
-		ageDays := 0
-		if !n.Created.IsZero() {
-			ageDays = int(now.Sub(n.Created).Hours() / 24)
+		hotness := 0
+		if !n.IsUmbrella() {
+			ageDays := 0
+			if !n.Created.IsZero() {
+				ageDays = int(now.Sub(n.Created).Hours() / 24)
+			}
+			inconclusiveBonus := 0
+			if n.Outcome == retree.OutcomeInconclusive {
+				inconclusiveBonus = retree.HotspotInconclusiveOutcomeBonus
+			}
+			hotness = retree.ComputeHotness(pending, ageDays, inconclusiveBonus)
 		}
-		inconclusiveBonus := 0
-		if n.Outcome == retree.OutcomeInconclusive {
-			inconclusiveBonus = retree.HotspotInconclusiveOutcomeBonus
-		}
-		hotness := retree.ComputeHotness(pending, ageDays, inconclusiveBonus)
 
 		gn := GraphNode{
 			ID:              uint64(n.ID),
 			Title:           n.Title,
+			Kind:            string(effectiveKindLabel(n)),
 			Status:          string(n.Status),
 			ClaimStatus:     string(n.ClaimStatus),
 			EvidenceStatus:  string(n.EvidenceStatus),
@@ -295,15 +301,18 @@ func buildNodeDetail(store *retree.Store, n *retree.Node) (NodeDetail, error) {
 	}
 
 	now := time.Now().UTC()
-	ageDays := 0
-	if !n.Created.IsZero() {
-		ageDays = int(now.Sub(n.Created).Hours() / 24)
+	hotness := 0
+	if !n.IsUmbrella() {
+		ageDays := 0
+		if !n.Created.IsZero() {
+			ageDays = int(now.Sub(n.Created).Hours() / 24)
+		}
+		inconclusiveBonus := 0
+		if n.Outcome == retree.OutcomeInconclusive {
+			inconclusiveBonus = retree.HotspotInconclusiveOutcomeBonus
+		}
+		hotness = retree.ComputeHotness(pending, ageDays, inconclusiveBonus)
 	}
-	inconclusiveBonus := 0
-	if n.Outcome == retree.OutcomeInconclusive {
-		inconclusiveBonus = retree.HotspotInconclusiveOutcomeBonus
-	}
-	hotness := retree.ComputeHotness(pending, ageDays, inconclusiveBonus)
 
 	// Relations pointing TO this node
 	allNodes, err := store.QueryNodes(retree.Filter{})
@@ -331,6 +340,7 @@ func buildNodeDetail(store *retree.Store, n *retree.Node) (NodeDetail, error) {
 	detail := NodeDetail{
 		ID:                 uint64(n.ID),
 		Title:              n.Title,
+		Kind:               string(effectiveKindLabel(n)),
 		Status:             string(n.Status),
 		ClaimStatus:        string(n.ClaimStatus),
 		EvidenceStatus:     string(n.EvidenceStatus),
@@ -375,6 +385,14 @@ func buildNodeDetail(store *retree.Store, n *retree.Node) (NodeDetail, error) {
 	}
 	detail.RelationOf = relationOf
 
+	if n.IsUmbrella() {
+		progress, perr := store.DerivedProgress(n.ID)
+		if perr != nil {
+			return NodeDetail{}, perr
+		}
+		detail.Progress = progress
+	}
+
 	return detail, nil
 }
 
@@ -393,6 +411,15 @@ func countPending(nodes []*retree.Node, children []retree.NodeID) int {
 		}
 	}
 	return count
+}
+
+// effectiveKindLabel resolves the semantic kind, treating legacy empty values
+// as work for the wire DTOs.
+func effectiveKindLabel(n *retree.Node) retree.NodeKind {
+	if n == nil || n.Kind == "" {
+		return retree.NodeKindWork
+	}
+	return n.Kind
 }
 
 // idsToU64 converts NodeIDs to the wire uint64 representation.

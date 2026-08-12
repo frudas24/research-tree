@@ -465,6 +465,7 @@ func retree_get_roots(handle uintptr) *C.char {
 type bridgeSummary struct {
 	ID          retree.NodeID      `json:"id"`
 	Title       string             `json:"title"`
+	Kind        retree.NodeKind    `json:"kind,omitempty"`
 	Status      retree.NodeStatus  `json:"status"`
 	Outcome     retree.Outcome     `json:"outcome,omitempty"`
 	ClaimStatus retree.ClaimStatus `json:"claim_status"`
@@ -495,6 +496,7 @@ func retree_query_nodes(handle uintptr, filterJSON *C.char) *C.char {
 		summaries[i] = bridgeSummary{
 			ID:          n.ID,
 			Title:       n.Title,
+			Kind:        n.Kind,
 			Status:      n.Status,
 			Outcome:     n.Outcome,
 			ClaimStatus: n.ClaimStatus,
@@ -535,6 +537,19 @@ func retree_get_status(handle uintptr, agentFilter *C.char) *C.char {
 		HotspotLimit: 10,
 	})
 	return jsonResult(summary)
+}
+
+//export retree_derived_progress
+func retree_derived_progress(handle uintptr, id uint64) *C.char {
+	s, err := getHandle(handle)
+	if err != nil {
+		return jsonError(err)
+	}
+	progress, err := s.DerivedProgress(retree.NodeID(id))
+	if err != nil {
+		return jsonError(err)
+	}
+	return jsonResult(progress)
 }
 
 // ── Tags / Artifacts / Claims ────────────────────────────────────

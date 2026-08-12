@@ -197,3 +197,77 @@ func TestComputeHotnessParity(t *testing.T) {
 func itoa(id retree.NodeID) string {
 	return fmt.Sprintf("%d", id)
 }
+
+// TestGraphHandlerKindAndProgress verifies umbrellas carry kind in the graph
+// projection and derived progress in the detail endpoint; work nodes do not.
+func TestGraphHandlerKindAndProgress(t *testing.T) {
+	s, _ := newTestStore(t)
+	u := &retree.Node{Frontmatter: retree.Frontmatter{Title: "program", Kind: retree.NodeKindUmbrella, Status: retree.StatusActive}}
+	if err := s.CreateNode(u); err != nil {
+		t.Fatalf("create umbrella: %v", err)
+	}
+	w := &retree.Node{Frontmatter: retree.Frontmatter{Title: "task", Status: retree.StatusActive, Parents: []retree.NodeID{u.ID}}}
+	if err := s.CreateNode(w); err != nil {
+		t.Fatalf("create work: %v", err)
+	}
+
+	srv := httptest.NewServer(newMux(s))
+	defer srv.Close()
+
+	// /graph carries kind.
+	resp, err := http.Get(srv.URL + "/graph")
+	if err != nil {
+		t.Fatalf("get graph: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var payload GraphPayload
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode graph: %v", err)
+	}
+	kindByID := map[uint64]string{}
+	for _, gn := range payload.Nodes {
+		kindByID[gn.ID] = gn.Kind
+	}
+	if kindByID[uint64(u.ID)] != string(retree.NodeKindUmbrella) {
+		t.Fatalf("umbrella kind in graph = %q", kindByID[uint64(u.ID)])
+	}
+	if kindByID[uint64(w.ID)] != string(retree.NodeKindWork) {
+		t.Fatalf("work kind in graph = %q", kindByID[uint64(w.ID)])
+	}
+	for _, gn := range payload.Nodes {
+		if gn.ID == uint64(u.ID) && gn.Hotness != 0 {
+			t.Fatalf("umbrella hotness must stay unset/zero, got %d", gn.Hotness)
+		}
+	}
+
+	// /node detail for umbrella includes progress.
+	resp, err = http.Get(srv.URL + "/node?id=" + itoa(u.ID))
+	if err != nil {
+		t.Fatalf("get detail: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var detail NodeDetail
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode detail: %v", err)
+	}
+	if detail.Progress == nil || detail.Progress.DirectChildren != 1 {
+		t.Fatalf("umbrella detail must include progress, got %+v", detail.Progress)
+	}
+	if detail.Hotness != 0 {
+		t.Fatalf("umbrella detail hotness must stay zero, got %d", detail.Hotness)
+	}
+
+	// Work detail has no progress.
+	resp, err = http.Get(srv.URL + "/node?id=" + itoa(w.ID))
+	if err != nil {
+		t.Fatalf("get work detail: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var workDetail NodeDetail
+	if err := json.NewDecoder(resp.Body).Decode(&workDetail); err != nil {
+		t.Fatalf("decode work detail: %v", err)
+	}
+	if workDetail.Progress != nil {
+		t.Fatalf("work detail must not carry progress: %+v", workDetail.Progress)
+	}
+}
