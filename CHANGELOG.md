@@ -7,11 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.1] - 2026-08-12
+
 ### Fixed
 - Active store locks now refresh their timestamp while work is in progress, so
   long-running operations cannot be reclaimed as stale by a second writer.
 - `relations.jsonl` now preserves `Relation.Note`, and relation index reads stay
   backward-compatible with legacy entries that never stored a note.
+- Binary index recovery (`rt storage reindex`) now runs under the store write
+  lock and fails loudly on duplicate node IDs in `nodes.bin` instead of
+  overwriting index entries silently.
+
+### Changed
+- `rt storage reindex` now explicitly supports only the current RTND v2 binary
+  payload layout. Legacy RTND v1 stores remain readable with an intact
+  `nodes.idx`, but rebuilding that index is intentionally rejected because the
+  old concatenated payloads are not delimited safely enough for forensic
+  recovery.
 
 ## [v0.4.0] - 2026-08-12
 
@@ -113,7 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     snapshots with retention.
   - C FFI bridge (`libretree.so` / Windows DLL) and GoReleaser packaging.
 
-[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.1...HEAD
+[v0.4.1]: https://github.com/frudas24/research-tree/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/frudas24/research-tree/compare/v0.3.3...v0.4.0
 [v0.3.3]: https://github.com/frudas24/research-tree/compare/v0.3.2...v0.3.3
 [v0.3.2]: https://github.com/frudas24/research-tree/compare/v0.3.1...v0.3.2
