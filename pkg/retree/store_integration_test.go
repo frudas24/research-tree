@@ -775,6 +775,24 @@ func TestLockStaleIsReclaimed(t *testing.T) {
 	mustNoErr(t, s.CreateNode(&Node{Frontmatter: Frontmatter{Title: "ok"}}))
 }
 
+// TestTryAcquireLockStateReclaimsAndAcquiresImmediately verifies reclaiming a
+// stale lock yields ownership in the same acquire attempt instead of forcing a
+// retry sleep on every write after release.
+func TestTryAcquireLockStateReclaimsAndAcquiresImmediately(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	stale := "pid: 1\nhost: \"h\"\ntimestamp: \"2000-01-01T00:00:00Z\"\noperation: \"x\"\nowner: \"y\"\ntoken: \"stale-token\"\n"
+	mustNoErr(t, os.WriteFile(s.lockPath(), []byte(stale), 0o644))
+
+	info, acquired, err := s.tryAcquireLockState("reclaim_test")
+	mustNoErr(t, err)
+	if !acquired {
+		t.Fatal("expected stale reclaim to acquire immediately")
+	}
+	if info.Token == "" || info.Operation != "reclaim_test" {
+		t.Fatalf("expected fresh owner token after reclaim, got %+v", info)
+	}
+}
+
 // TestLoadGraphRejectsMissingParent verifies stores with phantom parent
 // references fail during graph construction instead of loading silently.
 func TestLoadGraphRejectsMissingParent(t *testing.T) {

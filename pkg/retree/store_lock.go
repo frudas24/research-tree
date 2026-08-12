@@ -76,28 +76,12 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 func (s *Store) tryAcquireLockState(operation string) (lockInfo, bool, error) {
 	var acquired lockInfo
 	err := s.withLockStateGuard(func() error {
-		fd, err := os.OpenFile(s.lockPath(), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if err == nil {
-			token, terr := newLockToken()
-			if terr != nil {
-				_ = fd.Close()
-				_ = os.Remove(s.lockPath())
-				return terr
-			}
-			acquired = lockInfo{PID: os.Getpid(), Host: "local", Timestamp: time.Now().UTC(), Operation: operation, Owner: "local", Token: token}
-			_, werr := fd.WriteString(formatLockInfo(acquired))
-			cerr := fd.Close()
-			if werr != nil {
-				_ = os.Remove(s.lockPath())
-				return werr
-			}
-			if cerr != nil {
-				_ = os.Remove(s.lockPath())
-				return cerr
-			}
+		info, created, err := s.createLockInfoLocked(operation)
+		if err == nil && created {
+			acquired = info
 			return nil
 		}
-		if !os.IsExist(err) {
+		if err != nil && !os.IsExist(err) {
 			return err
 		}
 		reclaimed, serr := s.tryReclaimStaleLockLocked()
@@ -105,6 +89,13 @@ func (s *Store) tryAcquireLockState(operation string) (lockInfo, bool, error) {
 			return serr
 		}
 		if reclaimed {
+			info, created, cerr := s.createLockInfoLocked(operation)
+			if cerr != nil {
+				return cerr
+			}
+			if created {
+				acquired = info
+			}
 			return nil
 		}
 		acquired = lockInfo{}
@@ -114,6 +105,35 @@ func (s *Store) tryAcquireLockState(operation string) (lockInfo, bool, error) {
 		return lockInfo{}, false, err
 	}
 	return acquired, acquired.Token != "", nil
+}
+
+// createLockInfoLocked creates a fresh lockfile while the guard file is held.
+func (s *Store) createLockInfoLocked(operation string) (lockInfo, bool, error) {
+	fd, err := os.OpenFile(s.lockPath(), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return lockInfo{}, false, nil
+		}
+		return lockInfo{}, false, err
+	}
+	token, terr := newLockToken()
+	if terr != nil {
+		_ = fd.Close()
+		_ = os.Remove(s.lockPath())
+		return lockInfo{}, false, terr
+	}
+	info := lockInfo{PID: os.Getpid(), Host: "local", Timestamp: time.Now().UTC(), Operation: operation, Owner: "local", Token: token}
+	_, werr := fd.WriteString(formatLockInfo(info))
+	cerr := fd.Close()
+	if werr != nil {
+		_ = os.Remove(s.lockPath())
+		return lockInfo{}, false, werr
+	}
+	if cerr != nil {
+		_ = os.Remove(s.lockPath())
+		return lockInfo{}, false, cerr
+	}
+	return info, true, nil
 }
 
 // tryReclaimStaleLockLocked performs stale takeover while the guard file is
