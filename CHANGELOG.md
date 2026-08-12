@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-08-12
+
 ### Changed
 - FFI bindings consolidated into `third_party/retree-bridge/` and regenerated to
   cover the full bridge ABI (resources, feature lineage, recovery, history, migration).
@@ -105,7 +107,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     snapshots with retention.
   - C FFI bridge (`libretree.so` / Windows DLL) and GoReleaser packaging.
 
-[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/frudas24/research-tree/compare/v0.3.3...v0.4.0
 [v0.3.3]: https://github.com/frudas24/research-tree/compare/v0.3.2...v0.3.3
 [v0.3.2]: https://github.com/frudas24/research-tree/compare/v0.3.1...v0.3.2
 [v0.3.1]: https://github.com/frudas24/research-tree/compare/v0.3.0...v0.3.1

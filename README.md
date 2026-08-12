@@ -306,13 +306,20 @@ instead of returning a misleading partial-clean report.
 
 ### Recent updates
 
-As of `v0.3.3`, the main user-visible changes are:
+As of `v0.4.0`, the main user-visible changes are:
 
-- feature lineage contract fixes: explicit `current_node` is now invariant under later links
-- transitive `depends_on` health propagation in feature doctor
-- stricter store/API validation for feature create/link/relate operations
-- noisy failure on corrupt feature edge storage instead of false-clean doctor output
-- GitHub Actions workflows updated to Node 24 compatible action versions
+- audit-driven robustness fixes: strict CLI boolean flags, no silent codec
+  truncation, unique warning IDs, canonical run `endpoint_kind`
+- node history stays readable across storage-format migration
+- `rt storage reindex` rebuilds `nodes.idx` from `nodes.bin`; the store fails
+  loudly instead of silently presenting an empty graph when the index is lost
+- `research-graph` binds to `127.0.0.1` by default and surfaces storage errors
+  as 500 instead of rendering an empty graph
+- snapshot restore hardened against path-traversal archive entries
+- JSON persistence is delta-based (no delete-all crash window); single-node
+  reads are direct instead of full-store scans
+- FFI bindings consolidated into `third_party/retree-bridge/` covering the
+  complete bridge ABI
 
 `rt feature doctor` computes health at read time:
 
