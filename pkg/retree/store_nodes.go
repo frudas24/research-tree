@@ -475,6 +475,8 @@ func (s *Store) saveNodeHistory(n *Node) error {
 }
 
 // GetNodeHistory returns all historical versions of a node, sorted oldest-first.
+// Each history entry is decoded according to its own file extension so that
+// entries written before a storage-format migration remain readable.
 func (s *Store) getNodeHistory(id NodeID) ([]*Node, error) {
 	dir := filepath.Join(s.nodeHistoryDir(), fmt.Sprintf("%04d", id))
 	entries, err := os.ReadDir(dir)
@@ -484,21 +486,29 @@ func (s *Store) getNodeHistory(id NodeID) ([]*Node, error) {
 		}
 		return nil, err
 	}
-	ext := s.ext()
 	var out []*Node
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ext) {
+		if e.IsDir() {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			return nil, err
-		}
 		var n *Node
-		if s.format == StorageBIN {
-			n, err = UnmarshalNodeBinary(b)
-		} else {
+		switch {
+		case strings.HasSuffix(e.Name(), ".json"):
+			var b []byte
+			b, err = os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				return nil, err
+			}
 			n, err = UnmarshalNodeJSON(b)
+		case strings.HasSuffix(e.Name(), ".bin"):
+			var b []byte
+			b, err = os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				return nil, err
+			}
+			n, err = UnmarshalNodeBinary(b)
+		default:
+			continue
 		}
 		if err != nil {
 			return nil, err

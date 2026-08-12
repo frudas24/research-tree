@@ -1027,3 +1027,80 @@ func TestOpenBackfillsMissingFeaturesLayout(t *testing.T) {
 		t.Fatalf("expected backfilled features.json: %v", err)
 	}
 }
+
+// TestHistorySurvivesStorageMigration verifies node history written in the
+// old storage format remains readable after migrating to a new format.
+// Regression: getNodeHistory filtered by the current format extension, so a
+// json->bin migration made every pre-migration history entry invisible.
+func TestHistorySurvivesStorageMigration(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	n := &Node{Frontmatter: Frontmatter{Title: "migrate history", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(n))
+
+	// Two pre-migration revisions in JSON mode.
+	n.Status = StatusDone
+	n.Outcome = OutcomeSuccess
+	mustNoErr(t, s.UpdateNode(n))
+	n.Title = "migrate history (edited)"
+	mustNoErr(t, s.UpdateNode(n))
+
+	// Migration to binary, then one more revision written in binary mode.
+	mustNoErr(t, s.MigrateStorageFormat(StorageBIN))
+	n.Title = "migrate history (binary edit)"
+	mustNoErr(t, s.UpdateNode(n))
+
+	history, err := s.GetNodeHistory(n.ID)
+	mustNoErr(t, err)
+	// 2 JSON revisions + 1 binary revision (each entry is the state saved
+	// before the corresponding update). Before the fix only the last entry
+	// was returned because .json files were filtered out.
+	if len(history) != 3 {
+		t.Fatalf("want 3 history entries spanning both formats, got %d", len(history))
+	}
+	if history[0].Title != "migrate history" {
+		t.Fatalf("oldest JSON revision lost: %q", history[0].Title)
+	}
+	if history[1].Title != "migrate history" {
+		t.Fatalf("second JSON revision lost: %q", history[1].Title)
+	}
+	if history[2].Title != "migrate history (edited)" {
+		t.Fatalf("binary revision lost: %q", history[2].Title)
+	}
+}
+
+// TestHistoryMixedFormatsAfterMigration verifies a store can read both .json
+// and .bin history files side by side even without further writes.
+func TestHistoryMixedFormatsAfterMigration(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	n := &Node{Frontmatter: Frontmatter{Title: "mixed history", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(n))
+	n.Status = StatusDone
+	mustNoErr(t, s.UpdateNode(n))
+	mustNoErr(t, s.MigrateStorageFormat(StorageBIN))
+	n.Title = "mixed history (binary)"
+	mustNoErr(t, s.UpdateNode(n))
+
+	dir := filepath.Join(s.nodeHistoryDir(), fmt.Sprintf("%04d", n.ID))
+	entries, err := os.ReadDir(dir)
+	mustNoErr(t, err)
+	jsonCount, binCount := 0, 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		switch {
+		case strings.HasSuffix(e.Name(), ".json"):
+			jsonCount++
+		case strings.HasSuffix(e.Name(), ".bin"):
+			binCount++
+		}
+	}
+	if jsonCount == 0 || binCount == 0 {
+		t.Fatalf("expected both .json and .bin history entries, got json=%d bin=%d", jsonCount, binCount)
+	}
+	history, err := s.GetNodeHistory(n.ID)
+	mustNoErr(t, err)
+	if len(history) != jsonCount+binCount {
+		t.Fatalf("history must include both formats: got %d entries, expected %d", len(history), jsonCount+binCount)
+	}
+}
