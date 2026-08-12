@@ -75,20 +75,79 @@ func TestRelationIndexLifecycle(t *testing.T) {
 	if len(rels) != 2 {
 		t.Fatalf("expected 2 relations, got %d", len(rels))
 	}
+	if rels[0].Type != RelComparesAgainst || rels[0].Target != baseline.ID || rels[0].Note != "benchmark baseline" {
+		t.Fatalf("expected first relation note to round-trip, got %+v", rels[0])
+	}
 	all, err := s.ListAllRelations()
 	mustNoErr(t, err)
 	if len(all) != 2 {
 		t.Fatalf("expected 2 indexed relation edges, got %d", len(all))
+	}
+	if all[0].From != child.ID || all[0].Relation.Note != "benchmark baseline" {
+		t.Fatalf("expected indexed relation note before regeneration, got %+v", all[0])
 	}
 
 	if err := os.Remove(s.relationsPath()); err != nil {
 		t.Fatalf("remove relations index: %v", err)
 	}
 	mustNoErr(t, s.RegenerateRelations())
+	rels, err = s.ListRelations(child.ID)
+	mustNoErr(t, err)
+	if len(rels) != 2 || rels[0].Note != "benchmark baseline" {
+		t.Fatalf("expected relation note after regeneration, got %+v", rels)
+	}
 	all, err = s.ListAllRelations()
 	mustNoErr(t, err)
 	if len(all) != 2 {
 		t.Fatalf("expected 2 relation edges after regeneration, got %d", len(all))
+	}
+	if all[0].Relation.Note != "benchmark baseline" {
+		t.Fatalf("expected indexed relation note after regeneration, got %+v", all[0])
+	}
+}
+
+// TestListRelationsSupportsLegacyIndexWithoutNotes ensures old relations.jsonl
+// lines without the note field remain readable after the richer schema lands.
+func TestListRelationsSupportsLegacyIndexWithoutNotes(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	line := fmt.Sprintf("{\"from\":1,\"to\":2,\"type\":%q}\n", RelInspiredBy)
+	mustNoErr(t, os.WriteFile(s.relationsPath(), []byte(line), 0o644))
+
+	rels, err := s.ListRelations(1)
+	mustNoErr(t, err)
+	if len(rels) != 1 {
+		t.Fatalf("expected 1 relation, got %d", len(rels))
+	}
+	if rels[0].Type != RelInspiredBy || rels[0].Target != 2 || rels[0].Note != "" {
+		t.Fatalf("expected legacy relation without note to stay readable, got %+v", rels[0])
+	}
+}
+
+// TestLockHeartbeatRefreshesTimestamp adversarially verifies that a live lock
+// refreshes its embedded timestamp instead of becoming stale while work runs.
+func TestLockHeartbeatRefreshesTimestamp(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	release, err := s.acquireLock("heartbeat_test")
+	mustNoErr(t, err)
+	defer release()
+
+	first, err := readLockTimestamp(s.lockPath())
+	mustNoErr(t, err)
+
+	time.Sleep(lockRefreshEvery + 2*time.Second)
+
+	second, err := readLockTimestamp(s.lockPath())
+	mustNoErr(t, err)
+	if !second.After(first) {
+		t.Fatalf("expected lock heartbeat to refresh timestamp: first=%s second=%s", first, second)
+	}
+	if time.Since(second) > 3*time.Second {
+		t.Fatalf("expected refreshed timestamp to stay recent, age=%s", time.Since(second))
+	}
+	stale, err := s.isLockStale()
+	mustNoErr(t, err)
+	if stale {
+		t.Fatalf("expected active lock to remain non-stale after heartbeat refresh")
 	}
 }
 
@@ -514,6 +573,22 @@ func mustInit(t *testing.T, format StorageFormat) *Store {
 		t.Fatalf("init: %v", err)
 	}
 	return s
+}
+
+func readLockTimestamp(path string) (time.Time, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}, err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(line, "timestamp:") {
+			continue
+		}
+		ts := strings.TrimSpace(strings.TrimPrefix(line, "timestamp:"))
+		ts = strings.Trim(ts, "\"")
+		return time.Parse(time.RFC3339, ts)
+	}
+	return time.Time{}, fmt.Errorf("timestamp missing from lock file %s", path)
 }
 
 // mustNoErr fails the test if err is non-nil.

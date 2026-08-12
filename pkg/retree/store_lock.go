@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -11,6 +12,7 @@ const (
 	lockRetryInterval = 100 * time.Millisecond
 	lockTimeout       = 10 * time.Second
 	lockStaleAfter    = 30 * time.Second
+	lockRefreshEvery  = 5 * time.Second
 )
 
 type lockInfo struct {
@@ -48,7 +50,17 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 				_ = os.Remove(s.lockPath())
 				return nil, cerr
 			}
-			return func() { _ = os.Remove(s.lockPath()) }, nil
+			stop := make(chan struct{})
+			done := make(chan struct{})
+			var once sync.Once
+			go s.refreshLock(operation, stop, done)
+			return func() {
+				once.Do(func() {
+					close(stop)
+					<-done
+					_ = os.Remove(s.lockPath())
+				})
+			}, nil
 		}
 		if !os.IsExist(err) {
 			return nil, err
@@ -62,6 +74,30 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 			return nil, fmt.Errorf("lock timeout for op=%s", operation)
 		}
 		time.Sleep(lockRetryInterval)
+	}
+}
+
+// refreshLock keeps the lockfile timestamp fresh while the owner is active.
+func (s *Store) refreshLock(operation string, stop <-chan struct{}, done chan<- struct{}) {
+	ticker := time.NewTicker(lockRefreshEvery)
+	defer ticker.Stop()
+	defer close(done)
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			info := lockInfo{PID: os.Getpid(), Host: "local", Timestamp: time.Now().UTC(), Operation: operation, Owner: "local"}
+			path := s.lockPath()
+			tmp := path + ".tmp"
+			b := []byte(fmt.Sprintf("pid: %d\nhost: %q\ntimestamp: %q\noperation: %q\nowner: %q\n", info.PID, info.Host, info.Timestamp.Format(time.RFC3339), info.Operation, info.Owner))
+			if err := os.WriteFile(tmp, b, 0o644); err != nil {
+				continue
+			}
+			if err := os.Rename(tmp, path); err != nil {
+				_ = os.Remove(tmp)
+			}
+		}
 	}
 }
 

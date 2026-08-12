@@ -467,8 +467,17 @@ func (s *Store) regenerateRelations(g *Graph) error {
 	for _, id := range ids {
 		n := g.Nodes[id]
 		for _, rel := range n.Relations {
-			line := fmt.Sprintf("{\"from\":%d,\"to\":%d,\"type\":%q}\n", id, rel.Target, rel.Type)
-			b.WriteString(line)
+			lineBytes, err := json.Marshal(relationsLine{
+				From: id,
+				To:   rel.Target,
+				Type: rel.Type,
+				Note: rel.Note,
+			})
+			if err != nil {
+				return err
+			}
+			b.Write(lineBytes)
+			b.WriteByte('\n')
 		}
 	}
 	tmp := s.relationsPath() + ".tmp"
@@ -492,6 +501,7 @@ type relationsLine struct {
 	From NodeID       `json:"from"`
 	To   NodeID       `json:"to"`
 	Type RelationType `json:"type"`
+	Note string       `json:"note,omitempty"`
 }
 
 // listRelations returns all relations for a specific node from relations.jsonl.
@@ -503,7 +513,7 @@ func (s *Store) listRelations(id NodeID) ([]Relation, error) {
 	var out []Relation
 	for _, rl := range all {
 		if rl.From == id {
-			out = append(out, Relation{Type: rl.Type, Target: rl.To})
+			out = append(out, Relation{Type: rl.Type, Target: rl.To, Note: rl.Note})
 		}
 	}
 	return out, nil
@@ -526,7 +536,7 @@ func (s *Store) listAllRelations() ([]struct {
 		out = append(out, struct {
 			From     NodeID
 			Relation Relation
-		}{From: rl.From, Relation: Relation{Type: rl.Type, Target: rl.To}})
+		}{From: rl.From, Relation: Relation{Type: rl.Type, Target: rl.To, Note: rl.Note}})
 	}
 	return out, nil
 }

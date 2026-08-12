@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Active store locks now refresh their timestamp while work is in progress, so
+  long-running operations cannot be reclaimed as stale by a second writer.
+- `relations.jsonl` now preserves `Relation.Note`, and relation index reads stay
+  backward-compatible with legacy entries that never stored a note.
+
 ## [v0.4.0] - 2026-08-12
 
 ### Changed
