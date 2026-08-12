@@ -273,11 +273,14 @@ export async function bootCy(container) {
           ? '<span class="pill pill-ok">revalidated</span>' : '';
     const idPad = String(d.id).padStart(4, '0');
     const milestoneIcon = d.milestone_class === 'golden' ? ' \u2605' : '';
+    const kindLabel = d.kind || 'work';
+    const kindIcon = kindLabel === 'umbrella' ? ' \u2602' : '';
 
-    let html = `<strong>[${idPad}] ${esc(d.title)}${milestoneIcon}</strong>`;
+    let html = `<strong>[${idPad}] ${esc(d.title)}${milestoneIcon}${kindIcon}</strong>`;
     html += '<div style="margin-top:6px">';
 
     html += `<div>Status: <span class="pill ${statusPill}">${d.status}</span>`;
+    html += ` Kind: <b>${esc(kindLabel)}</b>`;
     html += ` Claim: <b>${d.claim_status}</b>`;
     html += ` Outcome: <b>${d.outcome}</b>`;
     html += ` Evidence: <b>${d.evidence_status}</b>${evidenceBadge}</div>`;
@@ -290,6 +293,16 @@ export async function bootCy(container) {
       html += `<div>\u2605 <b>Golden</b> ${d.milestone_kind || ''}`;
       if (d.milestone_reason) html += `<br><span style="color:var(--muted)">${esc(d.milestone_reason).substring(0, 200)}</span>`;
       html += '</div>';
+    }
+
+    if (d.progress) {
+      const p = d.progress;
+      const leaves = (p.actionable_leaves || []).map(id =>
+        `<span class="pill pill-warn" style="cursor:pointer" onclick="event.stopPropagation();window.__navToNode(${id})">${String(id).padStart(4,'0')}</span>`
+      ).join(' ');
+      html += `<div>\u2602 <b>Umbrella progress</b>: direct <b>${p.direct_children || 0}</b> | work <b>${p.work_children || 0}</b> | umbrella <b>${p.umbrella_children || 0}</b></div>`;
+      html += `<div>Direct status: active <b>${p.active || 0}</b> | done <b>${p.done || 0}</b> | paused <b>${p.paused || 0}</b></div>`;
+      if (leaves) html += `<div>Actionable leaves: ${leaves}</div>`;
     }
 
     html += `<div>Children: <b>${(d.children||[]).length}</b> (${d.pending_children} pending) | Hotness: <b>${d.hotness}</b></div>`;

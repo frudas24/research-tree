@@ -43,6 +43,10 @@ export function shapeByMilestone(cls) {
   return cls === 'golden' ? 'diamond' : 'ellipse';
 }
 
+export function shapeByKind(kind) {
+  return kind === 'umbrella' ? 'round-rectangle' : 'ellipse';
+}
+
 // Relation type → edge style
 export function edgeStyleByRelation(type) {
   switch (type) {
@@ -129,9 +133,22 @@ export function style() {
         'border-style': ele => borderByClaim(ele.data('claim_status')).style,
         'width': ele => sizeByChildren(ele.data('children') || 0),
         'height': ele => sizeByChildren(ele.data('children') || 0),
-        'shape': ele => shapeByMilestone(ele.data('milestone_class')),
+        'shape': ele => {
+          const milestoneShape = shapeByMilestone(ele.data('milestone_class'));
+          if (milestoneShape !== 'ellipse') return milestoneShape;
+          return shapeByKind(ele.data('kind'));
+        },
         'transition-property': 'background-color, border-color, border-width',
         'transition-duration': '300ms',
+      },
+    },
+    {
+      selector: 'node[kind = "umbrella"]',
+      style: {
+        'background-color': '#2563eb',
+        'border-color': '#bfdbfe',
+        'border-width': 3,
+        'border-style': 'double',
       },
     },
     // Evidence poisoned overlay

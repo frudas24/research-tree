@@ -18,6 +18,7 @@ export function toElements(g) {
         claim_status: n.claim_status || 'provisional',
         evidence_status: n.evidence_status || 'clean',
         outcome: n.outcome || 'unset',
+        kind: n.kind || 'work',
         milestone_class: n.milestone_class || '',
         milestone_kind: n.milestone_kind || '',
         agent: n.agent || '',
@@ -104,12 +105,14 @@ export function applyDiff(cy, els, keepHistory = true) {
       n.data('claim_status', d.claim_status);
       n.data('evidence_status', d.evidence_status);
       n.data('outcome', d.outcome);
+      n.data('kind', d.kind || 'work');
       n.data('milestone_class', d.milestone_class);
       n.data('milestone_kind', d.milestone_kind);
       n.data('children', d.children);
       n.data('pending_children', d.pending_children);
       n.data('hotness', d.hotness);
       n.data('tags', d.tags);
+      n.data('scope', d.scope || '');
     } else {
       cy.add({ data: d });
       changed = true;
@@ -148,6 +151,7 @@ function formatLabel(n) {
 }
 
 function getStatusIcon(n) {
+  if (n.kind === 'umbrella') return '\u2602'; // ☂
   if (n.milestone_class === 'golden') return '\u2605'; // ★
   switch (n.status) {
     case 'done':    return '\u2714'; // ✔
