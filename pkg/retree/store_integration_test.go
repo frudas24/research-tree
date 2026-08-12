@@ -739,6 +739,8 @@ func readLockTimestamp(path string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("timestamp missing from lock file %s", path)
 }
 
+// appendLockFileToSnapshot injects a historical lock entry into a snapshot
+// archive so restore can prove it ignores transient lock state.
 func appendLockFileToSnapshot(t *testing.T, snapshot []byte) []byte {
 	t.Helper()
 	var out bytes.Buffer

@@ -193,6 +193,7 @@ func mustNoErr(t *testing.T, err error) {
 	}
 }
 
+// mustRawMap decodes a JSON object into raw field payloads for bridge tests.
 func mustRawMap(t *testing.T, s string) map[string]json.RawMessage {
 	t.Helper()
 	var out map[string]json.RawMessage

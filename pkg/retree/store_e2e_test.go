@@ -72,10 +72,11 @@ func TestE2ESimulator(t *testing.T) {
 
 		// Create root node
 		baseline := &Node{Frontmatter: Frontmatter{
-			Title:  "KD baseline establecido",
-			Status: StatusDone,
-			Agent:  "researcher",
-			Tags:   []string{"kd", "baseline"},
+			Title:   "KD baseline establecido",
+			Status:  StatusDone,
+			Outcome: OutcomeSuccess,
+			Agent:   "researcher",
+			Tags:    []string{"kd", "baseline"},
 		}}
 		if err := s.CreateNode(baseline); err != nil {
 			return fmt.Errorf("create baseline: %w", err)
@@ -112,6 +113,7 @@ func TestE2ESimulator(t *testing.T) {
 
 		// Update sparse → done with artifacts
 		sparse.Status = StatusDone
+		sparse.Outcome = OutcomeSuccess
 		sparse.ClaimStatus = ClaimValidated
 		sparse.Body = "## Results\nk=128 achieves 0.82 recall with 40% sparsity."
 		sparse.Commits = []GitCommit{
@@ -373,9 +375,10 @@ func TestE2ESimulator(t *testing.T) {
 
 		// Create refuter node
 		refuter := &Node{Frontmatter: Frontmatter{
-			Title:  "Refutation: k=128 overfits small datasets",
-			Status: StatusDone,
-			Agent:  "opus",
+			Title:   "Refutation: k=128 overfits small datasets",
+			Status:  StatusDone,
+			Outcome: OutcomeFailure,
+			Agent:   "opus",
 		}}
 		if err := s.CreateNode(refuter); err != nil {
 			return fmt.Errorf("create refuter: %w", err)
@@ -692,6 +695,7 @@ func TestE2ESimulator(t *testing.T) {
 		full := &Node{Frontmatter: Frontmatter{
 			Title:       "Full spectrum test node",
 			Status:      StatusDone,
+			Outcome:     OutcomeSuccess,
 			ClaimStatus: ClaimValidated,
 			Parents:     []NodeID{},
 			Agent:       "equivalence-tester",
@@ -833,6 +837,7 @@ func TestE2ESimulator(t *testing.T) {
 		}
 		// Update
 		b.Status = StatusDone
+		b.Outcome = OutcomeSuccess
 		b.ClaimStatus = ClaimValidated
 		if err := s.UpdateNode(b); err != nil {
 			return fmt.Errorf("update in bin: %w", err)

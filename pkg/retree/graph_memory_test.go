@@ -92,6 +92,7 @@ func TestGraphListByStatusAndClaimStatus(t *testing.T) {
 
 	n2 := mkNode(2, "n2")
 	n2.Status = StatusDone
+	n2.Outcome = OutcomeSuccess
 	n2.ClaimStatus = ClaimValidated
 	mustAdd(t, g, n2)
 
@@ -128,6 +129,7 @@ func TestGraphAtRiskDescendants(t *testing.T) {
 	mustAdd(t, g, n2)
 	n3 := mkNode(3, "n3", 2)
 	n3.Status = StatusDone
+	n3.Outcome = OutcomeSuccess
 	mustAdd(t, g, n3)
 	if got := g.GetAtRiskDescendants(1); !reflect.DeepEqual(got, []NodeID{2}) {
 		t.Fatalf("at-risk mismatch: %v", got)
