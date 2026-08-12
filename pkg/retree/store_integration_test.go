@@ -151,6 +151,59 @@ func TestLockHeartbeatRefreshesTimestamp(t *testing.T) {
 	}
 }
 
+// TestLockReleaseDoesNotDeleteNewOwner verifies a stale owner that resumes late
+// cannot delete a lock that already belongs to a newer owner token.
+func TestLockReleaseDoesNotDeleteNewOwner(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	release, err := s.acquireLock("old_owner")
+	mustNoErr(t, err)
+
+	foreign := lockInfo{
+		PID:       999,
+		Host:      "remote",
+		Timestamp: time.Now().UTC(),
+		Operation: "new_owner",
+		Owner:     "remote",
+		Token:     "foreign-token",
+	}
+	mustNoErr(t, os.WriteFile(s.lockPath(), []byte(formatLockInfo(foreign)), 0o644))
+
+	release()
+
+	info, err := s.readLockInfo()
+	mustNoErr(t, err)
+	if info.Token != foreign.Token {
+		t.Fatalf("expected release to preserve newer owner token, got %+v", info)
+	}
+}
+
+// TestLockHeartbeatStopsAfterOwnershipLoss verifies a paused owner that wakes up
+// later does not overwrite a lock that has already been taken by a newer owner.
+func TestLockHeartbeatStopsAfterOwnershipLoss(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	release, err := s.acquireLock("old_owner")
+	mustNoErr(t, err)
+	defer release()
+
+	foreign := lockInfo{
+		PID:       999,
+		Host:      "remote",
+		Timestamp: time.Now().UTC(),
+		Operation: "new_owner",
+		Owner:     "remote",
+		Token:     "foreign-token",
+	}
+	mustNoErr(t, os.WriteFile(s.lockPath(), []byte(formatLockInfo(foreign)), 0o644))
+
+	time.Sleep(lockRefreshEvery + 2*time.Second)
+
+	info, err := s.readLockInfo()
+	mustNoErr(t, err)
+	if info.Token != foreign.Token || info.Operation != foreign.Operation {
+		t.Fatalf("expected old heartbeat to stop after ownership loss, got %+v", info)
+	}
+}
+
 // TestOpenFailsWhenMissing verifies open fails for nonexistent root.
 func TestOpenFailsWhenMissing(t *testing.T) {
 	_, err := Open(filepath.Join(t.TempDir(), "missing"))
@@ -516,7 +569,7 @@ func TestMigrateJSONToBINAndBack(t *testing.T) {
 // TestLockStaleIsReclaimed verifies stale locks are reclaimed.
 func TestLockStaleIsReclaimed(t *testing.T) {
 	s := mustInit(t, StorageJSON)
-	stale := "pid: 1\nhost: \"h\"\ntimestamp: \"2000-01-01T00:00:00Z\"\noperation: \"x\"\nowner: \"y\"\n"
+	stale := "pid: 1\nhost: \"h\"\ntimestamp: \"2000-01-01T00:00:00Z\"\noperation: \"x\"\nowner: \"y\"\ntoken: \"stale-token\"\n"
 	mustNoErr(t, os.WriteFile(s.lockPath(), []byte(stale), 0o644))
 	mustNoErr(t, s.CreateNode(&Node{Frontmatter: Frontmatter{Title: "ok"}}))
 }

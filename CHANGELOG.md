@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Store locks now carry an owner token and refresh/release only while they
+  still own that token, preventing a resumed stale owner from overwriting or
+  deleting a newer lock holder.
+- Writers in the same process are additionally serialized per research root,
+  closing intra-process races around lock handoff under heavy concurrent tests.
+
 ## [v0.4.1] - 2026-08-12
 
 ### Fixed
