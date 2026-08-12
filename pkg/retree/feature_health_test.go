@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// poisonedNode builds a node with poisoned evidence for health tests.
 func poisonedNode(title string) *Node {
 	n := &Node{Frontmatter: Frontmatter{
 		Title:          title,

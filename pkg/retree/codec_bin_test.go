@@ -602,7 +602,9 @@ func TestBinaryRejectsOversizedU16String(t *testing.T) {
 		{"title", func(n *Node) { n.Title = strings.Repeat("x", binMaxStrU16+1) }},
 		{"agent", func(n *Node) { n.Agent = strings.Repeat("a", binMaxStrU16+1) }},
 		{"tag", func(n *Node) { n.Tags = []string{strings.Repeat("t", binMaxStrU16+1)} }},
-		{"artifact_path", func(n *Node) { n.Artifacts = []Artifact{{Mode: ArtifactPath, Host: "local", Path: strings.Repeat("p", binMaxStrU16+1)}} }},
+		{"artifact_path", func(n *Node) {
+			n.Artifacts = []Artifact{{Mode: ArtifactPath, Host: "local", Path: strings.Repeat("p", binMaxStrU16+1)}}
+		}},
 	} {
 		t.Run(field.name, func(t *testing.T) {
 			n := fullTestNode()

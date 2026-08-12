@@ -12,7 +12,7 @@ const (
 	binMagic          = "RTND"
 	binVersionV1      = uint8(1) // read-only legacy compat; never written
 	binVersionCurrent = uint8(2) // written by WriteBinHeader
-	binHeaderSize     = 8 // 4 magic + 1 version + 3 reserved
+	binHeaderSize     = 8        // 4 magic + 1 version + 3 reserved
 	binMaxStrU16      = 65535
 	binMaxBodyU32     = 1<<32 - 1
 )

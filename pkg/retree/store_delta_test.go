@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// readNodeFile returns the raw on-disk JSON for a node file.
 func readNodeFile(t *testing.T, s *Store, id NodeID) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(s.nodesDir(), fmt.Sprintf("%04d.json", id)))
@@ -173,6 +174,7 @@ func TestJSONDeltaDiskMatchesGraph(t *testing.T) {
 	}
 }
 
+// titleFor builds a deterministic node title for a test index.
 func titleFor(i int) string {
 	return "node-" + string(rune('A'+i))
 }

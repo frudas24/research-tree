@@ -52,6 +52,8 @@ func (s *Store) ComputeFeatureHealth(spec string) (*FeatureHealthReport, error) 
 	return s.computeFeatureHealthWithDeps(spec, edges, degradedMemo, degradedInProgress)
 }
 
+// computeFeatureHealthWithDeps computes feature health, propagating degraded
+// state through depends_on edges.
 func (s *Store) computeFeatureHealthWithDeps(spec string, edges []FeatureEdge, degradedMemo map[string]bool, degradedInProgress map[string]bool) (*FeatureHealthReport, error) {
 	f, err := s.GetFeature(spec)
 	if err != nil {
@@ -111,6 +113,8 @@ func (s *Store) computeFeatureHealthWithDeps(spec string, edges []FeatureEdge, d
 	return report, nil
 }
 
+// computeDependsOnDegraded walks depends_on edges to detect transitive
+// degradation, memoizing results and detecting cycles.
 func (s *Store) computeDependsOnDegraded(spec string, edges []FeatureEdge, memo map[string]bool, inProgress map[string]bool) (bool, error) {
 	f, err := s.GetFeature(spec)
 	if err != nil {
@@ -240,6 +244,7 @@ func (s *Store) ComputeAllFeatureHealth() ([]*FeatureHealthReport, error) {
 	return reports, nil
 }
 
+// truncTitle shortens a title for compact display lines.
 func truncTitle(s string) string {
 	if len(s) > 40 {
 		return s[:37] + "..."

@@ -108,6 +108,7 @@ func TestWarningIDsUniqueAcrossInvalidations(t *testing.T) {
 	}
 }
 
+// readAllLines returns non-empty lines of a JSONL file.
 func readAllLines(t *testing.T, path string) []string {
 	t.Helper()
 	b, err := os.ReadFile(path)

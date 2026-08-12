@@ -12,6 +12,8 @@ import (
 	"github.com/frudas24/research-tree/pkg/retree"
 )
 
+// newTestStore initializes a JSON store in a temp dir and returns it with
+// its root path so tests can break the store's on-disk state.
 func newTestStore(t *testing.T) (*retree.Store, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -23,6 +25,7 @@ func newTestStore(t *testing.T) (*retree.Store, string) {
 	return s, path
 }
 
+// createTestGraph seeds parent/child/done nodes for handler tests.
 func createTestGraph(t *testing.T, s *retree.Store) {
 	t.Helper()
 	parent := &retree.Node{Frontmatter: retree.Frontmatter{Title: "parent", Status: retree.StatusActive}}
@@ -184,6 +187,7 @@ func TestComputeHotnessParity(t *testing.T) {
 	}
 }
 
+// itoa renders a NodeID as a decimal string.
 func itoa(id retree.NodeID) string {
 	return fmt.Sprintf("%d", id)
 }

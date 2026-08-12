@@ -21,6 +21,7 @@ import (
 	"github.com/frudas24/research-tree/pkg/retree"
 )
 
+// main parses flags, opens the store, and serves the graph UI.
 func main() {
 	researchRoot := flag.String("research-root", defaultResearchRoot(), "Path to .research directory")
 	host := flag.String("host", "127.0.0.1", "Bind address (default localhost only)")
@@ -197,6 +198,7 @@ type GraphPayload struct {
 
 // ── Builders ──
 
+// buildGraphPayload projects the whole DAG into the wire DTOs.
 func buildGraphPayload(store *retree.Store) (GraphPayload, error) {
 	nodes, err := store.QueryNodes(retree.Filter{SortBy: "id", Order: "asc"})
 	if err != nil {
@@ -271,6 +273,7 @@ func buildGraphPayload(store *retree.Store) (GraphPayload, error) {
 	}, nil
 }
 
+// buildNodeDetail renders the full detail DTO for one node.
 func buildNodeDetail(store *retree.Store, n *retree.Node) (NodeDetail, error) {
 	// Build children list
 	nodes, err := store.QueryNodes(retree.Filter{SortBy: "id", Order: "asc"})
@@ -379,6 +382,7 @@ func buildNodeDetail(store *retree.Store, n *retree.Node) (NodeDetail, error) {
 
 // ── Helpers ──
 
+// countPending counts children whose status is not done.
 func countPending(nodes []*retree.Node, children []retree.NodeID) int {
 	statusByID := make(map[retree.NodeID]retree.NodeStatus, len(nodes))
 	for _, n := range nodes {
@@ -393,6 +397,7 @@ func countPending(nodes []*retree.Node, children []retree.NodeID) int {
 	return count
 }
 
+// idsToU64 converts NodeIDs to the wire uint64 representation.
 func idsToU64(ids []retree.NodeID) []uint64 {
 	out := make([]uint64, len(ids))
 	for i, id := range ids {
@@ -401,6 +406,7 @@ func idsToU64(ids []retree.NodeID) []uint64 {
 	return out
 }
 
+// idPtrToU64 converts an optional NodeID pointer to the wire type.
 func idPtrToU64(p *retree.NodeID) *uint64 {
 	if p == nil {
 		return nil
@@ -409,6 +415,7 @@ func idPtrToU64(p *retree.NodeID) *uint64 {
 	return &v
 }
 
+// defaultResearchRoot resolves the research root from env or the cwd.
 func defaultResearchRoot() string {
 	if explicit := strings.TrimSpace(os.Getenv("RESEARCH_ROOT")); explicit != "" {
 		return explicit
@@ -419,6 +426,7 @@ func defaultResearchRoot() string {
 	return ".research"
 }
 
+// resolveUIDir locates the static UI directory at build or runtime.
 func resolveUIDir() string {
 	if _, err := os.Stat("ui/index.html"); err == nil {
 		return "ui"

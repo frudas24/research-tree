@@ -88,6 +88,7 @@ func (s *Store) CreateFeature(name string, createdFrom NodeID) (*Feature, error)
 	return s.createFeature(name, createdFrom)
 }
 
+// createFeature registers a new feature anchored at a node.
 func (s *Store) createFeature(name string, createdFrom NodeID) (*Feature, error) {
 	var created *Feature
 	err := s.withLock("create_feature", func() error {
@@ -228,6 +229,7 @@ func (f *Feature) resolveCurrentNode() {
 	f.CurrentNode = latest
 }
 
+// maybeResolveCurrentNode derives current_node unless it was set explicitly.
 func (f *Feature) maybeResolveCurrentNode() {
 	if f.CurrentNodeMode == "explicit" {
 		return

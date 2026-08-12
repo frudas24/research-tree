@@ -99,4 +99,5 @@ func TestSplitCommandArgs(t *testing.T) {
 	}
 }
 
+// boolPtr returns a pointer to v for test assertions.
 func boolPtr(v bool) *bool { return &v }

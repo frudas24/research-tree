@@ -136,6 +136,7 @@ func ValidateFeature(f *Feature) error {
 	return nil
 }
 
+// newInvalidFeatureError builds a FeatureError with a message.
 func newInvalidFeatureError(msg string) error {
 	return &FeatureError{msg: msg}
 }
@@ -145,6 +146,7 @@ type FeatureError struct {
 	msg string
 }
 
+// Error renders the FeatureError message.
 func (e *FeatureError) Error() string {
 	return "invalid feature: " + e.msg
 }
