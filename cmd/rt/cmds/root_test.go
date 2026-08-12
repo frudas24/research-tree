@@ -740,8 +740,9 @@ func TestCLINodeCreateConcurrentNoCollision(t *testing.T) {
 	}
 }
 
-// TestCLITreeCycleCutGuard verifies that tree rendering handles cycles gracefully.
-func TestCLITreeCycleCutGuard(t *testing.T) {
+// TestCLITreeRejectsCycleCorruption verifies tree rendering fails fast when
+// the underlying store is already cyclically corrupted on disk.
+func TestCLITreeRejectsCycleCorruption(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	_, _ = runCLI(t, "--research-root", root, "init", "--storage-format", "json")
 	_ = os.WriteFile(filepath.Join(root, "nodes", "0001.json"), []byte(`{"schema_version":1,"id":1,"title":"a","status":"active","claim_status":"provisional","parents":[2]}`), 0o644)
@@ -755,11 +756,11 @@ func TestCLITreeCycleCutGuard(t *testing.T) {
 	}()
 	select {
 	case <-done:
-		if err != nil {
-			t.Fatalf("tree err: %v", err)
+		if err == nil {
+			t.Fatalf("expected tree to reject corrupt cycle, got output %q", out)
 		}
-		if !strings.Contains(out, "cycle-cut") {
-			t.Fatalf("expected cycle-cut guard, got %q", out)
+		if !strings.Contains(err.Error(), "cycle") {
+			t.Fatalf("expected cycle error, got %v", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("tree command hung on cycle")
@@ -1571,8 +1572,9 @@ func TestCLIRelationsAndLinks(t *testing.T) {
 	}
 }
 
-// TestCLILintAuditsRelationHygiene verifies lint surfaces relation and graph hygiene issues.
-func TestCLILintAuditsRelationHygiene(t *testing.T) {
+// TestCLILintRejectsBrokenRelationTargets verifies lint fails fast when the
+// persisted store already contains relation targets that do not exist.
+func TestCLILintRejectsBrokenRelationTargets(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	_, _ = runCLI(t, "--research-root", root, "init")
 	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "lonely")
@@ -1585,24 +1587,19 @@ func TestCLILintAuditsRelationHygiene(t *testing.T) {
 		"node", "create",
 		"--title", "crowded",
 		"--parents", "2,3,4,5",
-		"--relation", "compares_against:999,compares_against:999",
 	); err != nil {
 		t.Fatalf("create lint fixture failed: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "relations.jsonl"), []byte("{\"from\":6,\"to\":999,\"type\":\"compares_against\"}\n{\"from\":6,\"to\":999,\"type\":\"compares_against\"}\n"), 0o644); err != nil {
+		t.Fatalf("write corrupt relations: %v", err)
+	}
 
 	out, err := runCLI(t, "--research-root", root, "lint", "--max-parents", "4")
-	if err != nil {
-		t.Fatalf("lint failed: %v", err)
+	if err == nil {
+		t.Fatalf("expected lint to reject broken relation targets, got %q", out)
 	}
-	for _, needle := range []string{
-		"has 4 parents",
-		"relation compares_against:999 targets non-existent node",
-		"duplicate relation compares_against:999",
-		"isolated node: no parents and no children",
-	} {
-		if !strings.Contains(out, needle) {
-			t.Fatalf("lint output missing %q: %q", needle, out)
-		}
+	if !strings.Contains(err.Error(), "relation target 999 not found") {
+		t.Fatalf("unexpected lint error: %v", err)
 	}
 }
 
@@ -1711,6 +1708,30 @@ func TestCLINodeCreateCreateFeatureFailsBeforePersist(t *testing.T) {
 	}
 	if strings.Contains(out, `"title": "impl"`) {
 		t.Fatalf("failed feature validation must not leave a created node: %s", out)
+	}
+}
+
+// TestCLINodeCreateCreateFeatureRollsBackFeatureOnNodeFailure verifies
+// auto-created features do not persist when node creation fails before commit.
+func TestCLINodeCreateCreateFeatureRollsBackFeatureOnNodeFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "parent")
+	if err := os.WriteFile(filepath.Join(root, "next_id"), []byte("banana\n"), 0o644); err != nil {
+		t.Fatalf("corrupt next_id: %v", err)
+	}
+
+	if _, err := runCLI(t, "--research-root", root, "node", "create",
+		"--title", "impl", "--parents", "1", "--feature", "NewFeature", "--create-feature"); err == nil {
+		t.Fatal("expected node create to fail with corrupt next_id")
+	}
+
+	out, err := runCLI(t, "--research-root", root, "feature", "list")
+	if err != nil {
+		t.Fatalf("feature list: %v", err)
+	}
+	if strings.Contains(out, "NewFeature") {
+		t.Fatalf("failed node creation must not leave created feature: %s", out)
 	}
 }
 

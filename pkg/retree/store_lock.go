@@ -83,10 +83,13 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 			local.Unlock()
 			return nil, err
 		}
-		stale, serr := s.isLockStale()
-		if serr == nil && stale {
-			_ = os.Remove(s.lockPath())
+		reclaimed, serr := s.tryReclaimStaleLock()
+		if serr == nil && reclaimed {
 			continue
+		}
+		if serr != nil && !os.IsNotExist(serr) {
+			local.Unlock()
+			return nil, serr
 		}
 		if time.Now().After(deadline) {
 			local.Unlock()
@@ -94,6 +97,38 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 		}
 		time.Sleep(lockRetryInterval)
 	}
+}
+
+// tryReclaimStaleLock removes the current lock only when the stale owner is
+// unchanged between observation and takeover.
+func (s *Store) tryReclaimStaleLock() (bool, error) {
+	info, err := s.readLockInfo()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !lockInfoStale(info, s.lockPath()) {
+		return false, nil
+	}
+	current, err := s.readLockInfo()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !sameLockOwnerSnapshot(info, current) {
+		return false, nil
+	}
+	if err := os.Remove(s.lockPath()); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // refreshLock keeps the lockfile timestamp fresh while the owner still holds it.
@@ -128,14 +163,7 @@ func (s *Store) isLockStale() (bool, error) {
 		}
 		return false, err
 	}
-	if info.Timestamp.IsZero() {
-		st, err := os.Stat(s.lockPath())
-		if err != nil {
-			return false, err
-		}
-		return time.Since(st.ModTime()) > lockStaleAfter, nil
-	}
-	return time.Since(info.Timestamp) > lockStaleAfter, nil
+	return lockInfoStale(info, s.lockPath()), nil
 }
 
 // readLockInfo parses the current lockfile payload.
@@ -243,6 +271,30 @@ func parseLockInfo(raw string) (lockInfo, error) {
 		info.Timestamp = parsed
 	}
 	return info, nil
+}
+
+// lockInfoStale reports whether the observed lock payload is older than the
+// stale threshold, falling back to file mtime when the payload lacks a timestamp.
+func lockInfoStale(info lockInfo, path string) bool {
+	if info.Timestamp.IsZero() {
+		st, err := os.Stat(path)
+		if err != nil {
+			return false
+		}
+		return time.Since(st.ModTime()) > lockStaleAfter
+	}
+	return time.Since(info.Timestamp) > lockStaleAfter
+}
+
+// sameLockOwnerSnapshot reports whether two lock observations describe the
+// exact same owner state, guarding stale takeover against changed lock contents.
+func sameLockOwnerSnapshot(a, b lockInfo) bool {
+	return a.Token == b.Token &&
+		a.Timestamp.Equal(b.Timestamp) &&
+		a.PID == b.PID &&
+		a.Host == b.Host &&
+		a.Operation == b.Operation &&
+		a.Owner == b.Owner
 }
 
 // trimLockField extracts and unquotes a lockfile field value after its prefix.

@@ -109,37 +109,17 @@ is taken from --body or --body-file if provided.`,
 			if err := validateTerminalOutcome(n.Status, n.Outcome); err != nil {
 				return err
 			}
-			var rollbackOnFeatureError bool
 			if strings.TrimSpace(featureSpec) != "" {
 				spec := strings.TrimSpace(featureSpec)
 				role := retree.FeatureNodeRole(strings.TrimSpace(featureRole))
 				if role == "" {
 					role = retree.RoleImplementation
 				}
-				if createFeature && !store.FeatureExists(spec) {
-					var fromID retree.NodeID
-					if len(parents) > 0 {
-						fromID = parents[0]
-					}
-					f, ferr := store.CreateFeature(spec, fromID)
-					if ferr != nil {
-						return fmt.Errorf("--create-feature: %w", ferr)
-					}
-					spec = f.ID
+				var fromID retree.NodeID
+				if len(parents) > 0 {
+					fromID = parents[0]
 				}
-				if _, err := store.GetFeature(spec); err != nil {
-					return fmt.Errorf("--feature: %w", err)
-				}
-				if err := store.CreateNode(n); err != nil {
-					return err
-				}
-				rollbackOnFeatureError = true
-				if err := store.LinkNodeToFeature(spec, n.ID, role); err != nil {
-					if rollbackOnFeatureError {
-						if derr := store.DeleteNode(n.ID, false); derr != nil {
-							return fmt.Errorf("--feature: %v (rollback node %04d failed: %v)", err, n.ID, derr)
-						}
-					}
+				if err := store.CreateNodeWithFeature(n, spec, role, createFeature, fromID); err != nil {
 					return fmt.Errorf("--feature: %w", err)
 				}
 			} else if err := store.CreateNode(n); err != nil {

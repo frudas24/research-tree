@@ -13,6 +13,11 @@ import (
 
 var slugRegexp = regexp.MustCompile(`[^a-z0-9]+`)
 
+// slicesContainsFeatureRole reports whether role is in the canonical role allowlist.
+func slicesContainsFeatureRole(role FeatureNodeRole) bool {
+	return slices.Contains(validFeatureNodeRoles, role)
+}
+
 // Slugify normalizes a name into a URL-friendly slug.
 func Slugify(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
