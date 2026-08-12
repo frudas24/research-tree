@@ -2147,3 +2147,87 @@ func TestCLITreeAndMermaidMarkUmbrellas(t *testing.T) {
 		t.Fatalf("mermaid must render work as box:\n%s", out)
 	}
 }
+
+// TestCLIStorageRepairOutcomes verifies the dedicated repair command can
+// inspect and fix legacy done+unset nodes that normal strict commands reject.
+func TestCLIStorageRepairOutcomes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	if _, err := runCLI(t, "--research-root", root, "init", "--storage-format", "json"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	legacy := map[string]any{
+		"schema_version": 1,
+		"id":             1,
+		"title":          "legacy",
+		"status":         "done",
+		"claim_status":   "provisional",
+	}
+	b, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nodes", "0001.json"), append(b, '\n'), 0o644); err != nil {
+		t.Fatalf("write legacy node: %v", err)
+	}
+
+	if _, err := runCLI(t, "--research-root", root, "node", "list"); err == nil {
+		t.Fatalf("strict node list must fail on legacy done+unset store")
+	}
+
+	out, err := runCLI(t, "--research-root", root, "--json", "storage", "repair-outcomes")
+	if err != nil {
+		t.Fatalf("scan repair-outcomes: %v", err)
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid json report: %v", err)
+	}
+	issues, ok := report["issues"].([]any)
+	if !ok || len(issues) != 1 {
+		t.Fatalf("expected one issue, got %v", report["issues"])
+	}
+
+	if _, err := runCLI(t, "--research-root", root, "storage", "repair-outcomes", "--set", "1=inconclusive"); err != nil {
+		t.Fatalf("apply repair-outcomes: %v", err)
+	}
+	out, err = runCLI(t, "--research-root", root, "--json", "node", "show", "1")
+	if err != nil {
+		t.Fatalf("show repaired node: %v", err)
+	}
+	report = map[string]any{}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid repaired node json: %v", err)
+	}
+	if report["outcome"] != "inconclusive" {
+		t.Fatalf("repaired outcome = %v, want inconclusive", report["outcome"])
+	}
+}
+
+// TestCLIStorageRepairOutcomesRejectsInvalidMapping verifies the CLI refuses
+// malformed or non-terminal repair assignments.
+func TestCLIStorageRepairOutcomesRejectsInvalidMapping(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	if _, err := runCLI(t, "--research-root", root, "init", "--storage-format", "json"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	legacy := map[string]any{
+		"schema_version": 1,
+		"id":             1,
+		"title":          "legacy",
+		"status":         "done",
+		"claim_status":   "provisional",
+	}
+	b, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nodes", "0001.json"), append(b, '\n'), 0o644); err != nil {
+		t.Fatalf("write legacy node: %v", err)
+	}
+
+	for _, bad := range []string{"1=unset", "abc=success", "1=banana", "1"} {
+		if _, err := runCLI(t, "--research-root", root, "storage", "repair-outcomes", "--set", bad); err == nil {
+			t.Fatalf("bad repair mapping %q must fail", bad)
+		}
+	}
+}

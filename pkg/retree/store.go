@@ -132,6 +132,9 @@ func (s *Store) ListNodes(f Filter) ([]NodeID, error) {
 
 // QueryNodes returns full nodes matching the filter.
 func (s *Store) QueryNodes(f Filter) ([]*Node, error) {
+	if err := validateFilter(f); err != nil {
+		return nil, err
+	}
 	if err := s.auditStore(); err != nil {
 		return nil, err
 	}

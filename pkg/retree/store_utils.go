@@ -1,6 +1,8 @@
 package retree
 
 import (
+	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -132,6 +134,15 @@ func matchesFilter(n *Node, f Filter) bool {
 		return false
 	}
 	return true
+}
+
+// validateFilter rejects invalid enum values at the core API layer so Go and
+// FFI callers cannot silently interpret bad filters as empty result sets.
+func validateFilter(f Filter) error {
+	if f.Kind != "" && !slices.Contains(validNodeKinds, f.Kind) {
+		return fmt.Errorf("%w: filter kind=%q", ErrInvalidNode, f.Kind)
+	}
+	return nil
 }
 
 // containsNodeID reports whether ids contains target.

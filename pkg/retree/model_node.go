@@ -140,6 +140,13 @@ func (n *Node) IsUmbrella() bool {
 
 // ValidateNode validates a normalized node payload.
 func ValidateNode(n *Node) error {
+	return validateNode(n, false)
+}
+
+// validateNode checks a normalized node payload and can optionally tolerate
+// legacy done+unset nodes so repair tooling can load old stores without
+// weakening normal runtime validation.
+func validateNode(n *Node, allowLegacyDoneUnset bool) error {
 	if n == nil {
 		return fmt.Errorf("%w: nil", ErrInvalidNode)
 	}
@@ -161,7 +168,7 @@ func ValidateNode(n *Node) error {
 	if !slices.Contains(validOutcomes, n.Outcome) {
 		return fmt.Errorf("%w: outcome=%q", ErrInvalidNode, n.Outcome)
 	}
-	if n.Status == StatusDone && n.Outcome == OutcomeUnset {
+	if n.Status == StatusDone && n.Outcome == OutcomeUnset && !allowLegacyDoneUnset {
 		return fmt.Errorf("%w: done nodes require a terminal outcome", ErrInvalidNode)
 	}
 	if !slices.Contains(validClaimStatuses, n.ClaimStatus) {
@@ -186,6 +193,11 @@ func ValidateNode(n *Node) error {
 	}
 	if n.MilestoneClass == MilestoneGolden && strings.TrimSpace(n.MilestoneReason) == "" {
 		return fmt.Errorf("%w: golden milestone requires milestone_reason", ErrInvalidNode)
+	}
+	if effectiveKind(n) == NodeKindUmbrella {
+		if n.MilestoneClass != MilestoneNone || n.MilestoneKind != MilestoneKindNone || strings.TrimSpace(n.MilestoneReason) != "" {
+			return fmt.Errorf("%w: umbrella nodes cannot be golden milestones", ErrInvalidNode)
+		}
 	}
 	if n.ClaimStatus == ClaimInvalidated && len(n.InvalidatedBy) == 0 {
 		return fmt.Errorf("%w: invalidated requires invalidated_by", ErrInvalidNode)

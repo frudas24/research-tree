@@ -1,6 +1,7 @@
 package retree
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -57,6 +58,16 @@ func TestFilterKindSeparatesWorkAndUmbrella(t *testing.T) {
 	}
 	if len(umbrellas) != 1 || umbrellas[0].ID != umb {
 		t.Fatalf("want exactly the umbrella, got %+v", umbrellas)
+	}
+}
+
+// TestQueryNodesRejectsInvalidKindFilter verifies core callers do not silently
+// interpret an invalid kind filter as an empty result set.
+func TestQueryNodesRejectsInvalidKindFilter(t *testing.T) {
+	s := kindStore(t)
+	mustCreate(t, s, &Node{Frontmatter: Frontmatter{Title: "w", Status: StatusActive}})
+	if _, err := s.QueryNodes(Filter{Kind: NodeKind("banana")}); !errors.Is(err, ErrInvalidNode) {
+		t.Fatalf("expected ErrInvalidNode for invalid kind filter, got %v", err)
 	}
 }
 

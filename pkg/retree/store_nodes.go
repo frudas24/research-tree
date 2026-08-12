@@ -51,6 +51,15 @@ func (s *Store) loadAllNodes() ([]*Node, error) {
 	return s.loadAllNodesBIN()
 }
 
+// loadAllNodesAllowLegacyDoneUnset loads nodes while tolerating the historical
+// done+unset pattern so repair tooling can inspect and upgrade old stores.
+func (s *Store) loadAllNodesAllowLegacyDoneUnset() ([]*Node, error) {
+	if s.format == StorageJSON {
+		return s.loadAllNodesJSONWithLegacyOutcomeTolerance()
+	}
+	return s.loadAllNodesBINWithLegacyOutcomeTolerance()
+}
+
 // loadAllNodesJSON loads nodes from individual JSON files.
 func (s *Store) loadAllNodesJSON() ([]*Node, error) {
 	entries, err := os.ReadDir(s.nodesDir())
@@ -63,6 +72,27 @@ func (s *Store) loadAllNodesJSON() ([]*Node, error) {
 			continue
 		}
 		n, err := loadAndValidateJSONNode(filepath.Join(s.nodesDir(), e.Name()), true)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+// loadAllNodesJSONWithLegacyOutcomeTolerance loads JSON nodes while allowing
+// historical done+unset payloads so migration tooling can inspect old stores.
+func (s *Store) loadAllNodesJSONWithLegacyOutcomeTolerance() ([]*Node, error) {
+	entries, err := os.ReadDir(s.nodesDir())
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Node, 0)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		n, err := loadAndValidateJSONNodeWithLegacyOutcomeTolerance(filepath.Join(s.nodesDir(), e.Name()), true)
 		if err != nil {
 			return nil, err
 		}
@@ -242,6 +272,56 @@ func (s *Store) loadAllNodesBIN() ([]*Node, error) {
 	return out, nil
 }
 
+// loadAllNodesBINWithLegacyOutcomeTolerance loads BIN nodes while allowing
+// historical done+unset payloads so migration tooling can inspect old stores.
+func (s *Store) loadAllNodesBINWithLegacyOutcomeTolerance() ([]*Node, error) {
+	if err := s.ensureBinIndexPresent(); err != nil {
+		return nil, err
+	}
+	idx, err := s.readBinIndex()
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(s.nodesBinPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	header := make([]byte, binHeaderSize)
+	if _, err := io.ReadFull(f, header); err != nil {
+		return nil, fmt.Errorf("bin: read header: %w", err)
+	}
+	if _, err := ReadBinHeader(header); err != nil {
+		return nil, err
+	}
+	ids := make([]NodeID, 0, len(idx))
+	for id := range idx {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Node, 0, len(ids))
+	for _, id := range ids {
+		entry := idx[id]
+		n, err := s.readBinNodeAtAllowLegacyDoneUnset(f, fi.Size(), id, entry)
+		if err != nil {
+			return nil, err
+		}
+		if n.ID != id {
+			return nil, fmt.Errorf("%w: index entry %d decodes to node %d", ErrInvalidNode, id, n.ID)
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
 // getNode returns a single node by ID without scanning the full store.
 // JSON mode reads the node's own file; binary mode uses the index + CRC.
 func (s *Store) getNode(id NodeID) (*Node, error) {
@@ -333,6 +413,29 @@ func (s *Store) readBinNodeAt(f *os.File, fileSize int64, id NodeID, entry binIn
 	return n, nil
 }
 
+// readBinNodeAtAllowLegacyDoneUnset reads and validates one binary node entry
+// while tolerating the historical done+unset combination for repair workflows.
+func (s *Store) readBinNodeAtAllowLegacyDoneUnset(f *os.File, fileSize int64, id NodeID, entry binIndexEntry) (*Node, error) {
+	if err := validateBinIndexEntry(fileSize, entry); err != nil {
+		return nil, fmt.Errorf("node %d: %w", id, err)
+	}
+	buf := make([]byte, int(entry.Length))
+	if _, err := f.ReadAt(buf, entry.Offset); err != nil {
+		return nil, err
+	}
+	if crc32.ChecksumIEEE(buf) != entry.Checksum {
+		return nil, fmt.Errorf("checksum mismatch for node %d", id)
+	}
+	n, err := UnmarshalNodeBinary(buf)
+	if err != nil {
+		return nil, err
+	}
+	if err := normalizeAndValidateLoadedNodeAllowLegacyDoneUnset(n); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
 // validateBinIndexEntry rejects malformed or unsafe nodes.idx entries before
 // they can panic or reserve absurd amounts of memory.
 func validateBinIndexEntry(fileSize int64, entry binIndexEntry) error {
@@ -383,6 +486,32 @@ func loadAndValidateJSONNode(path string, checkFilenameID bool) (*Node, error) {
 	return n, nil
 }
 
+// loadAndValidateJSONNodeWithLegacyOutcomeTolerance loads one JSON node file
+// while tolerating the historical done+unset combination for repair workflows.
+func loadAndValidateJSONNodeWithLegacyOutcomeTolerance(path string, checkFilenameID bool) (*Node, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	n, err := UnmarshalNodeJSON(b)
+	if err != nil {
+		return nil, err
+	}
+	if err := normalizeAndValidateLoadedNodeAllowLegacyDoneUnset(n); err != nil {
+		return nil, err
+	}
+	if checkFilenameID {
+		id, err := parseJSONNodeID(filepath.Base(path))
+		if err != nil {
+			return nil, err
+		}
+		if n.ID != id {
+			return nil, fmt.Errorf("%w: file %s contains node %d", ErrInvalidNode, filepath.Base(path), n.ID)
+		}
+	}
+	return n, nil
+}
+
 // normalizeAndValidateLoadedNode applies deterministic defaults to a decoded
 // node before validating it as if it had been created through the public API.
 func normalizeAndValidateLoadedNode(n *Node) error {
@@ -391,6 +520,16 @@ func normalizeAndValidateLoadedNode(n *Node) error {
 	}
 	ApplyNodeDefaults(n, n.Created)
 	return ValidateNode(n)
+}
+
+// normalizeAndValidateLoadedNodeAllowLegacyDoneUnset applies defaults and
+// validates a decoded node while tolerating the historical done+unset pattern.
+func normalizeAndValidateLoadedNodeAllowLegacyDoneUnset(n *Node) error {
+	if n == nil {
+		return fmt.Errorf("%w: nil", ErrInvalidNode)
+	}
+	ApplyNodeDefaults(n, n.Created)
+	return validateNode(n, true)
 }
 
 // validateGraphReferentialIntegrity rejects in-memory graphs that still contain

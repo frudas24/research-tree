@@ -92,6 +92,22 @@ func TestValidateNodeAcceptsGoldenMilestone(t *testing.T) {
 	}
 }
 
+// TestValidateNodeRejectsUmbrellaGoldenCombination verifies umbrella nodes
+// cannot also carry golden milestone metadata.
+func TestValidateNodeRejectsUmbrellaGoldenCombination(t *testing.T) {
+	n := &Node{Frontmatter: Frontmatter{
+		Title:           "program",
+		Kind:            NodeKindUmbrella,
+		MilestoneClass:  MilestoneGolden,
+		MilestoneKind:   MilestoneKindBreakthrough,
+		MilestoneReason: "not allowed",
+	}}
+	ApplyNodeDefaults(n, time.Now())
+	if err := ValidateNode(n); !errors.Is(err, ErrInvalidNode) {
+		t.Fatalf("expected ErrInvalidNode for umbrella+golden, got %v", err)
+	}
+}
+
 // TestValidateNodeInvalidatedRequiresInvalidatedBy verifies invalidated claim requires invalidated_by.
 func TestValidateNodeInvalidatedRequiresInvalidatedBy(t *testing.T) {
 	n := &Node{Frontmatter: Frontmatter{Title: "x"}}
