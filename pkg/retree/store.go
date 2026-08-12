@@ -24,6 +24,12 @@ func (s *Store) CreateNode(n *Node) error {
 	return s.createNode(n)
 }
 
+// CreateNodeWithFeature creates a node and links it to a feature atomically
+// from the caller's perspective.
+func (s *Store) CreateNodeWithFeature(n *Node, featureSpec string, role FeatureNodeRole, autoCreate bool, createdFrom NodeID) error {
+	return s.createNodeWithFeature(n, featureSpec, role, autoCreate, createdFrom)
+}
+
 // GetNode retrieves a node by ID.
 func (s *Store) GetNode(id NodeID) (*Node, error) {
 	return s.getNode(id)
@@ -126,6 +132,9 @@ func (s *Store) ListNodes(f Filter) ([]NodeID, error) {
 
 // QueryNodes returns full nodes matching the filter.
 func (s *Store) QueryNodes(f Filter) ([]*Node, error) {
+	if err := s.auditStore(); err != nil {
+		return nil, err
+	}
 	all, err := s.loadAllNodes()
 	if err != nil {
 		return nil, err

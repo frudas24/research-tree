@@ -1,8 +1,10 @@
 package retree
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"testing"
@@ -158,6 +160,49 @@ func TestGetNodeBINRejectsOversizedIndexLength(t *testing.T) {
 	}
 	if _, err := s.GetNode(1); err == nil {
 		t.Fatalf("oversized index length must be rejected")
+	}
+}
+
+// TestGetNodeBINRejectsSemanticallyInvalidPayload verifies BIN reads apply the
+// same normalization and validation guarantees as JSON reads.
+func TestGetNodeBINRejectsSemanticallyInvalidPayload(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageBIN)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	invalid := &Node{Frontmatter: Frontmatter{
+		ID:             1,
+		Title:          "bad bin",
+		SchemaVersion:  CurrentSchemaVersion,
+		Status:         StatusDone,
+		ClaimStatus:    ClaimProvisional,
+		EvidenceStatus: EvidenceClean,
+		Outcome:        OutcomeUnset,
+	}}
+	payload, err := MarshalNodeBinary(invalid)
+	if err != nil {
+		t.Fatalf("marshal bin: %v", err)
+	}
+	var bin bytes.Buffer
+	WriteBinHeader(&bin)
+	offset := int64(bin.Len())
+	bin.Write(payload)
+	if err := os.WriteFile(s.nodesBinPath(), bin.Bytes(), 0o644); err != nil {
+		t.Fatalf("write nodes.bin: %v", err)
+	}
+	idx := map[string]binIndexEntry{
+		"1": {Offset: offset, Length: int64(len(payload)), Checksum: crc32.ChecksumIEEE(payload)},
+	}
+	b, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatalf("marshal idx: %v", err)
+	}
+	if err := os.WriteFile(s.nodesIdxPath(), append(b, '\n'), 0o644); err != nil {
+		t.Fatalf("write idx: %v", err)
+	}
+	if _, err := s.GetNode(1); err == nil {
+		t.Fatal("expected invalid BIN node to be rejected")
 	}
 }
 

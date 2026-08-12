@@ -699,6 +699,54 @@ func TestRestoreRejectsCorruptSnapshotWithoutTouchingStore(t *testing.T) {
 	}
 }
 
+// TestRestorePreservesRollbackStoreWhenRollbackAlsoFails verifies a failed
+// publish does not delete the only valid backup if restoring it also fails.
+func TestRestorePreservesRollbackStoreWhenRollbackAlsoFails(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	n := &Node{Frontmatter: Frontmatter{Title: "original", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(n))
+	snaps, err := s.ListSnapshots()
+	mustNoErr(t, err)
+	if len(snaps) == 0 {
+		t.Fatal("expected snapshots")
+	}
+
+	realRename := renamePath
+	var rollbackDir string
+	stagePublishFailed := false
+	restoreRollbackFailed := false
+	renamePath = func(oldpath, newpath string) error {
+		switch {
+		case oldpath == s.rootPath && strings.Contains(newpath, ".restore-backup-"):
+			rollbackDir = newpath
+			return realRename(oldpath, newpath)
+		case oldpath != "" && newpath == s.rootPath && strings.Contains(oldpath, ".retree-restore-new-"):
+			stagePublishFailed = true
+			return fmt.Errorf("inject publish failure")
+		case oldpath == rollbackDir && newpath == s.rootPath:
+			restoreRollbackFailed = true
+			return fmt.Errorf("inject rollback failure")
+		default:
+			return realRename(oldpath, newpath)
+		}
+	}
+	defer func() { renamePath = realRename }()
+
+	err = s.RestoreSnapshot(snaps[0].ID)
+	if err == nil {
+		t.Fatal("expected restore failure")
+	}
+	if !stagePublishFailed || !restoreRollbackFailed {
+		t.Fatalf("expected injected publish and rollback failures, got publish=%v rollback=%v", stagePublishFailed, restoreRollbackFailed)
+	}
+	if rollbackDir == "" {
+		t.Fatal("expected rollback directory to be captured")
+	}
+	if _, statErr := os.Stat(filepath.Join(rollbackDir, "meta.json")); statErr != nil {
+		t.Fatalf("expected rollback backup to be preserved, got %v", statErr)
+	}
+}
+
 // TestMigrateJSONToBINAndBack verifies storage format migration roundtrip.
 func TestMigrateJSONToBINAndBack(t *testing.T) {
 	s := mustInit(t, StorageJSON)
@@ -735,6 +783,30 @@ func TestLoadGraphRejectsMissingParent(t *testing.T) {
 	mustNoErr(t, os.WriteFile(filepath.Join(s.nodesDir(), "0001.json"), raw, 0o644))
 	if _, err := s.GetRoots(); err == nil {
 		t.Fatal("expected missing parent to fail graph load")
+	}
+}
+
+// TestQueryNodesRejectsMissingParent verifies direct node scans share the same
+// referential-integrity guarantees as graph-based views.
+func TestQueryNodesRejectsMissingParent(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	raw := []byte("{\"id\":1,\"title\":\"ghost-parent\",\"schema_version\":1,\"status\":\"active\",\"claim_status\":\"provisional\",\"evidence_status\":\"clean\",\"outcome\":\"unset\",\"parents\":[999]}\n")
+	mustNoErr(t, os.WriteFile(filepath.Join(s.nodesDir(), "0001.json"), raw, 0o644))
+	if _, err := s.QueryNodes(Filter{}); err == nil {
+		t.Fatal("expected QueryNodes to reject missing parent references")
+	}
+}
+
+// TestAuditStoreRejectsInvalidFeatureReferences verifies sidecar validation
+// catches semantically invalid feature references before the store is trusted.
+func TestAuditStoreRejectsInvalidFeatureReferences(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(root))
+	bad := []byte("{\"next_id\":2,\"features\":[{\"id\":\"f0001\",\"name\":\"Bad\",\"slug\":\"bad\",\"status\":\"active\",\"created_from\":999,\"nodes\":[{\"node_id\":999,\"role\":\"implementation\"}]}]}\n")
+	mustNoErr(t, os.WriteFile(s.featuresPath(), bad, 0o644))
+	if err := s.auditStore(); err == nil {
+		t.Fatal("expected invalid feature sidecar to fail store audit")
 	}
 }
 

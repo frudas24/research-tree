@@ -323,7 +323,14 @@ func (s *Store) readBinNodeAt(f *os.File, fileSize int64, id NodeID, entry binIn
 	if crc32.ChecksumIEEE(buf) != entry.Checksum {
 		return nil, fmt.Errorf("checksum mismatch for node %d", id)
 	}
-	return UnmarshalNodeBinary(buf)
+	n, err := UnmarshalNodeBinary(buf)
+	if err != nil {
+		return nil, err
+	}
+	if err := normalizeAndValidateLoadedNode(n); err != nil {
+		return nil, err
+	}
+	return n, nil
 }
 
 // validateBinIndexEntry rejects malformed or unsafe nodes.idx entries before
