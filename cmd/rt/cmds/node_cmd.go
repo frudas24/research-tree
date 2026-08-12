@@ -618,6 +618,10 @@ func newNodeListCmd(opts *RootOptions) *cobra.Command {
 				}
 				supersededBy = resolved[0]
 			}
+			hasArtifact, err := parseOptionalBool(hasArtifact)
+			if err != nil {
+				return err
+			}
 			ids, err := store.ListNodes(retree.Filter{
 				Status:         parseNodeStatus(status),
 				ClaimStatus:    parseClaimStatus(claimStatus),
@@ -635,7 +639,7 @@ func newNodeListCmd(opts *RootOptions) *cobra.Command {
 				BodyContains:   bodyContains,
 				ContinuedBy:    continuedBy,
 				SupersededBy:   supersededBy,
-				HasArtifact:    parseOptionalBool(hasArtifact),
+				HasArtifact:    hasArtifact,
 				SortBy:         sortBy,
 				Order:          order,
 				Offset:         offset,

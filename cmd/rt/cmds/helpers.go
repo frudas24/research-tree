@@ -235,16 +235,20 @@ func uniqueNodeIDs(in []retree.NodeID) []retree.NodeID {
 }
 
 // parseOptionalBool parses loose boolean strings and returns nil when unset.
-func parseOptionalBool(raw string) *bool {
-	raw = strings.TrimSpace(strings.ToLower(raw))
-	if raw == "" {
-		return nil
+// Unknown values are rejected instead of silently coercing to false.
+func parseOptionalBool(raw string) (*bool, error) {
+	switch strings.TrimSpace(strings.ToLower(raw)) {
+	case "":
+		return nil, nil
+	case "true", "1", "yes":
+		v := true
+		return &v, nil
+	case "false", "0", "no":
+		v := false
+		return &v, nil
+	default:
+		return nil, fmt.Errorf("invalid boolean %q (valid: true|false|1|0|yes|no)", raw)
 	}
-	v := raw == "true" || raw == "1" || raw == "yes"
-	if raw == "false" || raw == "0" || raw == "no" {
-		return &v
-	}
-	return &v
 }
 
 // readBody reads the contents of a markdown body file.
@@ -271,6 +275,31 @@ func resolveBody(bodyInline, bodyFile string, useEditor bool) (string, error) {
 	return readBody(bodyFile)
 }
 
+// splitCommandArgs splits a command line on whitespace while preserving
+// quoted segments, so $EDITOR="code --wait" resolves to the binary plus flags.
+func splitCommandArgs(cmdline string) []string {
+	var args []string
+	var cur strings.Builder
+	inQuote := false
+	for _, r := range cmdline {
+		switch {
+		case r == '"' || r == '\'':
+			inQuote = !inQuote
+		case (r == ' ' || r == '\t') && !inQuote:
+			if cur.Len() > 0 {
+				args = append(args, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if cur.Len() > 0 {
+		args = append(args, cur.String())
+	}
+	return args
+}
+
 // editBody opens $EDITOR with the given initial content and returns the
 // final text. Falls back to vi, then nano.
 func editBody(initial string) (string, error) {
@@ -290,17 +319,21 @@ func editBody(initial string) (string, error) {
 	if editor == "" {
 		editor = os.Getenv("VISUAL")
 	}
-	if editor == "" {
+	var editorArgs []string
+	if editor != "" {
+		editorArgs = splitCommandArgs(editor)
+	}
+	if len(editorArgs) == 0 {
 		if _, err := exec.LookPath("vi"); err == nil {
-			editor = "vi"
+			editorArgs = []string{"vi"}
 		} else if _, err := exec.LookPath("nano"); err == nil {
-			editor = "nano"
+			editorArgs = []string{"nano"}
 		} else {
 			return "", fmt.Errorf("no editor found: set $EDITOR or install vi/nano")
 		}
 	}
 
-	cmd := exec.Command(editor, tmp.Name())
+	cmd := exec.Command(editorArgs[0], append(editorArgs[1:], tmp.Name())...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
