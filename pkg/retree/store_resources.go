@@ -30,7 +30,8 @@ func (s *Store) createResource(r Resource) error {
 		if err := s.writeResources(resources); err != nil {
 			return err
 		}
-		return s.createSnapshot("create_resource")
+		s.bestEffortSnapshot("create_resource")
+		return nil
 	})
 }
 
@@ -62,7 +63,8 @@ func (s *Store) updateResource(r Resource) error {
 		if err := s.writeResources(resources); err != nil {
 			return err
 		}
-		return s.createSnapshot("update_resource")
+		s.bestEffortSnapshot("update_resource")
+		return nil
 	})
 }
 
@@ -101,7 +103,8 @@ func (s *Store) deleteResource(id string) error {
 		if err := s.writeResources(filtered); err != nil {
 			return err
 		}
-		return s.createSnapshot("delete_resource")
+		s.bestEffortSnapshot("delete_resource")
+		return nil
 	})
 }
 
@@ -179,7 +182,7 @@ func (s *Store) claimResource(lease ResourceLease) error {
 				if err := s.writeLeases(leases); err != nil {
 					return err
 				}
-				if err := s.appendResourceEvent(ResourceEvent{
+				_ = s.appendResourceEvent(ResourceEvent{
 					ResourceID: lease.ResourceID,
 					NodeID:     lease.NodeID,
 					Action:     ResourceEventClaim,
@@ -187,10 +190,9 @@ func (s *Store) claimResource(lease ResourceLease) error {
 					ClaimedBy:  leases[i].ClaimedBy,
 					Note:       leases[i].Note,
 					Timestamp:  nowUTC(),
-				}); err != nil {
-					return err
-				}
-				return s.createSnapshot("claim_resource")
+				})
+				s.bestEffortSnapshot("claim_resource")
+				return nil
 			}
 		}
 		if err := s.enforceLeaseCapacity(*resource, leases, lease); err != nil {
@@ -200,7 +202,7 @@ func (s *Store) claimResource(lease ResourceLease) error {
 		if err := s.writeLeases(leases); err != nil {
 			return err
 		}
-		if err := s.appendResourceEvent(ResourceEvent{
+		_ = s.appendResourceEvent(ResourceEvent{
 			ResourceID: lease.ResourceID,
 			NodeID:     lease.NodeID,
 			Action:     ResourceEventClaim,
@@ -208,10 +210,9 @@ func (s *Store) claimResource(lease ResourceLease) error {
 			ClaimedBy:  lease.ClaimedBy,
 			Note:       lease.Note,
 			Timestamp:  lease.ClaimedAt,
-		}); err != nil {
-			return err
-		}
-		return s.createSnapshot("claim_resource")
+		})
+		s.bestEffortSnapshot("claim_resource")
+		return nil
 	})
 }
 
@@ -241,7 +242,7 @@ func (s *Store) releaseResource(nodeID NodeID, resourceID string) error {
 			return err
 		}
 		if released != nil {
-			if err := s.appendResourceEvent(ResourceEvent{
+			_ = s.appendResourceEvent(ResourceEvent{
 				ResourceID: released.ResourceID,
 				NodeID:     released.NodeID,
 				Action:     ResourceEventRelease,
@@ -249,11 +250,10 @@ func (s *Store) releaseResource(nodeID NodeID, resourceID string) error {
 				ClaimedBy:  released.ClaimedBy,
 				Note:       released.Note,
 				Timestamp:  nowUTC(),
-			}); err != nil {
-				return err
-			}
+			})
 		}
-		return s.createSnapshot("release_resource")
+		s.bestEffortSnapshot("release_resource")
+		return nil
 	})
 }
 
@@ -353,9 +353,7 @@ func (s *Store) releaseNodeResourcesUnlocked(nodeID NodeID, action ResourceEvent
 		return err
 	}
 	for _, event := range events {
-		if err := s.appendResourceEvent(event); err != nil {
-			return err
-		}
+		_ = s.appendResourceEvent(event)
 	}
 	return nil
 }

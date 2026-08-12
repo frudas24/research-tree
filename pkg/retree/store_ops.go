@@ -35,7 +35,8 @@ func (s *Store) createNode(n *Node) error {
 		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); err != nil {
 			return err
 		}
-		return s.createSnapshot("create_node")
+		s.bestEffortSnapshot("create_node")
+		return nil
 	})
 }
 
@@ -78,7 +79,8 @@ func (s *Store) updateNode(n *Node) error {
 				return err
 			}
 		}
-		return s.createSnapshot("update_node")
+		s.bestEffortSnapshot("update_node")
+		return nil
 	})
 }
 
@@ -110,7 +112,8 @@ func (s *Store) deleteNode(id NodeID, force bool) error {
 		if err := s.releaseNodeResourcesUnlocked(id, ResourceEventAutoReleaseDelete); err != nil {
 			return err
 		}
-		return s.createSnapshot("delete_node")
+		s.bestEffortSnapshot("delete_node")
+		return nil
 	})
 }
 
@@ -161,7 +164,8 @@ func (s *Store) migrateStorageFormat(target StorageFormat) error {
 			_ = os.Remove(s.nodesBinPath())
 			_ = os.Remove(s.nodesIdxPath())
 		}
-		return s.createSnapshot("migrate_post")
+		s.bestEffortSnapshot("migrate_post")
+		return nil
 	})
 }
 
@@ -262,7 +266,8 @@ func (s *Store) invalidateClaim(target NodeID, refuter NodeID, reason string) er
 		if err := s.generateWarningsForInvalidation(g, target); err != nil {
 			return err
 		}
-		return s.createSnapshot("invalidate_claim")
+		s.bestEffortSnapshot("invalidate_claim")
+		return nil
 	})
 }
 

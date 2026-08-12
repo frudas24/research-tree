@@ -206,3 +206,30 @@ func TestOpenBackfillsMissingResourceFiles(t *testing.T) {
 		t.Fatalf("unexpected leases after backfill claim: %+v", leases)
 	}
 }
+
+// TestClaimResourceIgnoresLateEventFailure verifies a lease claim that already
+// persisted does not return an error only because the audit event append failed.
+func TestClaimResourceIgnoresLateEventFailure(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	node := &Node{Frontmatter: Frontmatter{Title: "gpu run"}}
+	mustNoErr(t, s.CreateNode(node))
+	mustNoErr(t, s.CreateResource(Resource{
+		ID:       "gpu-node-0",
+		Label:    "gpu-node-0 gpu0",
+		Kind:     ResourceGPU,
+		Enabled:  true,
+		Capacity: 1,
+	}))
+	if err := os.RemoveAll(s.resourceEventsPath()); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove events path: %v", err)
+	}
+	if err := os.MkdirAll(s.resourceEventsPath(), 0o755); err != nil {
+		t.Fatalf("block events file path: %v", err)
+	}
+	mustNoErr(t, s.ClaimResource(ResourceLease{ResourceID: "gpu-node-0", NodeID: node.ID, Mode: LeaseExclusive}))
+	leases, err := s.GetNodeResourceLeases(node.ID)
+	mustNoErr(t, err)
+	if len(leases) != 1 {
+		t.Fatalf("lease should persist despite event write failure, got %+v", leases)
+	}
+}

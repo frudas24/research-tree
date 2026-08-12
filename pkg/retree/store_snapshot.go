@@ -25,6 +25,12 @@ func (s *Store) createSnapshot(operation string) error {
 	return s.createSnapshotProtected(operation, nil)
 }
 
+// bestEffortSnapshot records a post-mutation snapshot without surfacing a late
+// failure as if the mutation itself had failed.
+func (s *Store) bestEffortSnapshot(operation string) {
+	_ = s.createSnapshot(operation)
+}
+
 // createSnapshotProtected creates a tar.gz snapshot while preventing retention
 // from deleting any explicitly protected snapshot IDs.
 func (s *Store) createSnapshotProtected(operation string, protect map[string]struct{}) error {

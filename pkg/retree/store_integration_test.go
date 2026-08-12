@@ -255,6 +255,7 @@ func TestCreateGetUpdateDeleteFlowJSON(t *testing.T) {
 	before := n2g.Modified
 	time.Sleep(5 * time.Millisecond)
 	n2g.Status = StatusDone
+	n2g.Outcome = OutcomeSuccess
 	n2g.Parents = nil
 	if err := s.UpdateNode(n2g); err != nil {
 		t.Fatalf("update: %v", err)
@@ -351,7 +352,7 @@ func TestConcurrentCreateNoDuplicateIDs(t *testing.T) {
 func TestListNodesFilters(t *testing.T) {
 	s := mustInit(t, StorageJSON)
 	n1 := &Node{Frontmatter: Frontmatter{Title: "KD alpha", Status: StatusActive, Tags: []string{"kd"}, Agent: "researcher", Scope: "mistral ctx=2048", MilestoneClass: MilestoneGolden, MilestoneKind: MilestoneKindChampion, MilestoneReason: "current lineage champion"}, Body: "alpha body with flask"}
-	n2 := &Node{Frontmatter: Frontmatter{Title: "beta", Status: StatusDone, Tags: []string{"other"}, Agent: "opus", ClaimStatus: ClaimValidated}, Body: "beta body with websocket"}
+	n2 := &Node{Frontmatter: Frontmatter{Title: "beta", Status: StatusDone, Outcome: OutcomeSuccess, Tags: []string{"other"}, Agent: "opus", ClaimStatus: ClaimValidated}, Body: "beta body with websocket"}
 	mustNoErr(t, s.CreateNode(n1))
 	mustNoErr(t, s.CreateNode(n2))
 
@@ -670,9 +671,9 @@ func TestLockStaleIsReclaimed(t *testing.T) {
 // TestInvalidateClaimWarningsAndAck verifies claim invalidation, warnings, and ack.
 func TestInvalidateClaimWarningsAndAck(t *testing.T) {
 	s := mustInit(t, StorageJSON)
-	a := &Node{Frontmatter: Frontmatter{Title: "ancestor", Agent: "researcher", Status: StatusDone}}
+	a := &Node{Frontmatter: Frontmatter{Title: "ancestor", Agent: "researcher", Status: StatusDone, Outcome: OutcomeSuccess}}
 	mustNoErr(t, s.CreateNode(a))
-	ref := &Node{Frontmatter: Frontmatter{Title: "refuter", Status: StatusDone}}
+	ref := &Node{Frontmatter: Frontmatter{Title: "refuter", Status: StatusDone, Outcome: OutcomeSuccess}}
 	mustNoErr(t, s.CreateNode(ref))
 	active := &Node{Frontmatter: Frontmatter{Title: "active", Parents: []NodeID{a.ID}, Agent: "opus", Status: StatusActive}}
 	mustNoErr(t, s.CreateNode(active))
@@ -694,8 +695,8 @@ func TestInvalidateClaimWarningsAndAck(t *testing.T) {
 // TestInvalidateClaimIdempotentNoDuplicates verifies invalidation is idempotent.
 func TestInvalidateClaimIdempotentNoDuplicates(t *testing.T) {
 	s := mustInit(t, StorageJSON)
-	a := &Node{Frontmatter: Frontmatter{Title: "ancestor", Status: StatusDone}}
-	ref := &Node{Frontmatter: Frontmatter{Title: "refuter", Status: StatusDone}}
+	a := &Node{Frontmatter: Frontmatter{Title: "ancestor", Status: StatusDone, Outcome: OutcomeSuccess}}
+	ref := &Node{Frontmatter: Frontmatter{Title: "refuter", Status: StatusDone, Outcome: OutcomeSuccess}}
 	child := &Node{Frontmatter: Frontmatter{Title: "active", Status: StatusActive, Agent: "researcher", Parents: []NodeID{1}}}
 	mustNoErr(t, s.CreateNode(a))
 	mustNoErr(t, s.CreateNode(ref))
@@ -789,7 +790,7 @@ func mustNoErr(t *testing.T, err error) {
 func TestFilterJSONRoundtrip(t *testing.T) {
 	s := mustInit(t, StorageJSON)
 	n1 := &Node{Frontmatter: Frontmatter{Title: "alpha bug", Status: StatusActive, Agent: "test", Tags: []string{"kd"}}, Body: "contains flask mention"}
-	n2 := &Node{Frontmatter: Frontmatter{Title: "beta done", Status: StatusDone, Agent: "test", Tags: []string{"ml"}}, Body: "contains websocket mention"}
+	n2 := &Node{Frontmatter: Frontmatter{Title: "beta done", Status: StatusDone, Outcome: OutcomeSuccess, Agent: "test", Tags: []string{"ml"}}, Body: "contains websocket mention"}
 	n3 := &Node{Frontmatter: Frontmatter{Title: "gamma active", Status: StatusActive, Agent: "other"}}
 	mustNoErr(t, s.CreateNode(n1))
 	mustNoErr(t, s.CreateNode(n2))
@@ -849,8 +850,10 @@ func TestBinaryHistoryRoundtrip(t *testing.T) {
 
 	// Update twice to generate history entries
 	n.Status = StatusDone
+	n.Outcome = OutcomeSuccess
 	mustNoErr(t, s.UpdateNode(n))
 	n.Status = StatusDone
+	n.Outcome = OutcomeSuccess
 	mustNoErr(t, s.UpdateNode(n))
 
 	// Check history
@@ -885,6 +888,7 @@ func TestSnapshotPreservesHistory(t *testing.T) {
 
 	// Generate history
 	n.Status = StatusDone
+	n.Outcome = OutcomeSuccess
 	mustNoErr(t, s.UpdateNode(n))
 
 	historyBefore, err := s.GetNodeHistory(n.ID)
@@ -931,6 +935,25 @@ func TestSnapshotPreservesHistory(t *testing.T) {
 	mustNoErr(t, err)
 	if len(historyAfter) != len(historyBefore) {
 		t.Fatalf("history lost after restore: before=%d after=%d", len(historyBefore), len(historyAfter))
+	}
+}
+
+// TestCreateNodeIgnoresLateSnapshotFailure verifies a post-persist snapshot
+// failure does not surface as if node creation itself had failed.
+func TestCreateNodeIgnoresLateSnapshotFailure(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	if err := os.RemoveAll(s.snapshotsDir()); err != nil {
+		t.Fatalf("remove snapshots dir: %v", err)
+	}
+	if err := os.WriteFile(s.snapshotsDir(), []byte("block snapshots"), 0o644); err != nil {
+		t.Fatalf("block snapshots path: %v", err)
+	}
+	n := &Node{Frontmatter: Frontmatter{Title: "late snapshot failure", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(n))
+	got, err := s.GetNode(n.ID)
+	mustNoErr(t, err)
+	if got.Title != n.Title {
+		t.Fatalf("node mutation should survive late snapshot failure, got %+v", got)
 	}
 }
 
@@ -1335,6 +1358,7 @@ func TestHistoryMixedFormatsAfterMigration(t *testing.T) {
 	n := &Node{Frontmatter: Frontmatter{Title: "mixed history", Status: StatusActive}}
 	mustNoErr(t, s.CreateNode(n))
 	n.Status = StatusDone
+	n.Outcome = OutcomeSuccess
 	mustNoErr(t, s.UpdateNode(n))
 	mustNoErr(t, s.MigrateStorageFormat(StorageBIN))
 	n.Title = "mixed history (binary)"
