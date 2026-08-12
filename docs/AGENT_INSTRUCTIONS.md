@@ -30,6 +30,14 @@ rt init --force --storage-format json  # debug mode (human-readable)
 Binary format is the default (2.6x smaller). Use `RESEARCH_TREE_FORMAT=json`
 for human inspection or git-friendly diffs.
 
+If an older store cannot open because historical nodes were persisted as
+`status=done` with `outcome=unset`, inspect and repair it explicitly:
+
+```bash
+rt storage repair-outcomes
+rt storage repair-outcomes --set 202=success --set 203=inconclusive
+```
+
 **Path resolution:** each project gets its own `.research/` directory.
 Default is `$CWD/.research` (the repo you're working in).
 Set `RESEARCH_TREE_ROOT=~/.agent` for a global cross-project tree.
@@ -112,6 +120,7 @@ rt node ancestors N --json           # trace lineage
 | **Leases** | Active node→resource occupancy; released automatically on `done` or `paused` |
 | **Tags** | Categorize: `seeddelta`, `experiment`, `guardrails`, `decision` |
 | **Status flow** | active → done/paused |
+| **Node kind** | `work` for actionable units, `umbrella` for program / roadmap / governance boundaries |
 | **Outcome** | unset/success/failure/inconclusive (typically meaningful with `status=done`) |
 | **Claim status** | provisional → validated/invalidated/superseded |
 | **Revision history** | Every edit saves the previous version. `rt node history N` |
@@ -133,6 +142,8 @@ Detailed node dumps are opt-in.
 
 `--json` remains backward compatible and now includes additive fields:
 `status_counts`, `claim_status_counts`, `outcome_counts`, `matrix`, `hotspots`.
+Umbrella-aware summaries are additive as well:
+`work_status_counts`, `umbrella_status_counts`, and `umbrella_pressure`.
 
 ## Status lifecycle
 

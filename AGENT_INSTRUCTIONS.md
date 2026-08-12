@@ -15,6 +15,8 @@ Keep research tracking reliable, reproducible, and auditable.
 1. **One concept per commit.**
 2. **Never close a node without terminal outcome.**
    `status=done` requires `outcome in {success,failure,inconclusive}`.
+   Historical legacy stores may contain `done+unset`; repair them with
+   `rt storage repair-outcomes` before normal operation.
 3. **Always link evidence.**
    Capture command, resource, endpoint, outdir/artifacts, and commit hash.
 4. **Claim hardware explicitly before using it.**
@@ -193,6 +195,7 @@ These are the current first-class axes. Do not invent new meanings in free text
 when one of these already applies.
 
 - `status`: `active | done | paused`
+- `kind`: `work | umbrella`
 - `outcome`: `unset | success | failure | inconclusive`
 - `claim_status`: `provisional | validated | invalidated | superseded`
 - `resource inventory`: explicit machine/GPU/cpu-slot inventory
@@ -201,6 +204,9 @@ when one of these already applies.
 
 Interpretation:
 
+- `kind=work`: actionable claim, experiment, fix, decision, or observation
+- `kind=umbrella`: program / roadmap / governance boundary; excluded from
+  work-only hotspots and work status sections
 - `done + success`: the work completed and produced a positive result
 - `done + failure`: the work completed and refuted or failed operationally
 - `done + inconclusive`: the work completed but evidence is ambiguous

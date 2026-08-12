@@ -35,6 +35,7 @@ Environment variables:
 rt node create --title "Baseline"
 rt node create --title "Child" --parents 1,2
 rt node create --title "Child" --parents "Baseline"
+rt node create --kind umbrella --title "Program boundary"
 rt node create --title "Scoped claim" --scope "mistral-q4km ctx=2048 greedy"
 rt node create --title "Active task" --exit-criteria "close after 3 reproducible seeds"
 rt node create --title "Run note" --body-file ./notes.md
@@ -49,6 +50,9 @@ rt node create --title "Contaminated run" --evidence-status poisoned --evidence-
 - `--relation` adds typed cross-links such as `depends_on`, `compares_against`, `inspired_by`, and `aggregates`.
 - `--edit` opens `$EDITOR` and takes precedence over `--body` / `--body-file`.
 - `status=done` requires terminal outcome: `success`, `failure`, or `inconclusive`.
+- `--kind` accepts `work` (default) or `umbrella`.
+- `kind=umbrella` is for program / roadmap / governance boundaries. It stays a
+  real DAG node, but work-only hotspots and work status sections exclude it.
 
 ### `rt node show`
 
@@ -71,6 +75,7 @@ rendered in human-readable form.
 
 ```bash
 rt node edit 4 --status paused
+rt node edit 4 --kind umbrella
 rt node edit 4 --claim-status validated
 rt node edit 4 --scope "llama-8b q4_k_m ctx=4096"
 rt node edit 4 --exit-criteria "close when throughput benchmark is replicated"
@@ -198,6 +203,7 @@ rt node delete 7 --force
 
 ```bash
 rt node list
+rt node list --kind umbrella
 rt node list --status active --agent researcher
 rt node list --claim-status invalidated
 rt node list --evidence-status poisoned
@@ -417,6 +423,28 @@ rt status --json
 
 JSON is the stable automation contract. Existing top-level fields remain, while
 new aggregations are additive:
+
+- `work_status_counts` / `umbrella_status_counts`
+- `umbrella_active` / `umbrella_done` / `umbrella_paused`
+- `umbrella_pressure`
+
+## Storage repair
+
+### `rt storage repair-outcomes`
+
+Scan or repair legacy stores that still contain historical nodes with
+`status=done` and `outcome=unset`.
+
+```bash
+rt storage repair-outcomes
+rt storage repair-outcomes --set 202=success --set 203=inconclusive
+```
+
+The repair path is explicit on purpose:
+
+- it reports the legacy nodes first
+- it requires a terminal outcome for every repaired node
+- it snapshots before rewriting the store
 
 - `status_counts`
 - `claim_status_counts`

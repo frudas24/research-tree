@@ -112,6 +112,7 @@ Every step is a node. Every connection is explicit. Nothing is lost.
 | Concept | What it means |
 |---------|---------------|
 | **Node** | A unit of research: claim, experiment, decision, or observation |
+| **Node kind** | `work` for actionable units, `umbrella` for program / roadmap / governance boundaries |
 | **Parent** | What prior work does this depend on? (epistemic dependency) |
 | **Claim** | A falsifiable statement. Starts `provisional`, ends `validated`, `invalidated`, or `superseded` |
 | **Run** | A concrete experiment execution: resource, endpoint, command, outdir, seed, validity |
@@ -226,6 +227,7 @@ rt changes --since 72                # nodes changed in last 72h
 
 # Nodes
 rt node create --title "..." --parents 1,2 --tags a,b,c
+rt node create --kind umbrella --title "..." --parents 1,2
 rt node create --title "..." --milestone-class golden --milestone-kind breakthrough --milestone-reason "..."
 rt node create --title "..." --parents 1,2 --primary-parent 1 --relation compares_against:3
 rt node show 42
@@ -256,6 +258,7 @@ rt resource history gpu-node-0
 
 # Queries
 rt node list --status active
+rt node list --kind umbrella
 rt node list --tag benchmark
 rt node list --claim-status invalidated
 rt node list --milestone-class golden
@@ -277,7 +280,14 @@ rt feature relate f0002 f0001 --type depends_on --from-node 58
 rt feature doctor f0001
 rt feature impact f0001
 rt feature graph f0001
+rt storage repair-outcomes
+rt storage repair-outcomes --set 202=success --set 203=inconclusive
 ```
+
+Umbrellas are first-class DAG nodes for research programs, roadmaps, or
+governance boundaries. They can have parents and children like any other node,
+but they are intentionally excluded from work-only hotspots so organizational
+structure does not inflate actionable pressure.
 
 ### Feature lineage
 
@@ -320,6 +330,10 @@ As of `v0.4.0`, the main user-visible changes are:
   reads are direct instead of full-store scans
 - FFI bindings consolidated into `third_party/retree-bridge/` covering the
   complete bridge ABI
+- `Node.kind=work|umbrella` distinguishes actionable work from program
+  boundaries across CLI, ABI, server, Mermaid, and dashboard views
+- `rt storage repair-outcomes` provides the explicit migration path for legacy
+  historical stores that still contain `done + outcome=unset`
 
 `rt feature doctor` computes health at read time:
 
