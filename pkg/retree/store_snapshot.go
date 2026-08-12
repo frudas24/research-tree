@@ -31,6 +31,14 @@ func (s *Store) bestEffortSnapshot(operation string) {
 	_ = s.createSnapshot(operation)
 }
 
+// ensureSnapshotCatalogHealthy validates the manifest before a mutation commits
+// so a present-but-corrupt catalog fails early instead of being silently
+// replaced or only surfacing as a late post-commit snapshot error.
+func (s *Store) ensureSnapshotCatalogHealthy() error {
+	_, err := s.readManifestStrict()
+	return err
+}
+
 // createSnapshotProtected creates a tar.gz snapshot while preventing retention
 // from deleting any explicitly protected snapshot IDs.
 func (s *Store) createSnapshotProtected(operation string, protect map[string]struct{}) error {

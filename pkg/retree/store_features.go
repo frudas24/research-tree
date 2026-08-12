@@ -292,7 +292,7 @@ func (s *Store) SetFeatureCurrentNode(featureSpec string, nodeID NodeID) error {
 
 // FeatureExists reports whether a feature spec resolves to an existing feature.
 func (s *Store) FeatureExists(spec string) bool {
-	_, err := s.resolveFeatureID(spec)
+	_, err := s.GetFeature(spec)
 	return err == nil
 }
 

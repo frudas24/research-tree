@@ -558,6 +558,21 @@ func TestCreateSnapshotFailsOnCorruptManifest(t *testing.T) {
 	}
 }
 
+// TestMutationsFailEarlyOnCorruptSnapshotManifest verifies store mutations do
+// not commit when the snapshot catalog is present but invalid.
+func TestMutationsFailEarlyOnCorruptSnapshotManifest(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	mustNoErr(t, os.WriteFile(s.manifestPath(), []byte("{not-json}\n"), 0o644))
+	if err := s.CreateNode(&Node{Frontmatter: Frontmatter{Title: "blocked"}}); err == nil {
+		t.Fatal("expected corrupt manifest to abort mutation before commit")
+	}
+	ids, err := s.ListNodes(Filter{})
+	mustNoErr(t, err)
+	if len(ids) != 0 {
+		t.Fatalf("mutation should not have persisted nodes, got %v", ids)
+	}
+}
+
 // TestRestoreOldestSnapshotWithFullRetention verifies restoring the oldest
 // retained snapshot does not delete it when creating the pre-restore backup.
 func TestRestoreOldestSnapshotWithFullRetention(t *testing.T) {
@@ -998,9 +1013,9 @@ func TestSnapshotPreservesHistory(t *testing.T) {
 	}
 }
 
-// TestCreateNodeIgnoresLateSnapshotFailure verifies a post-persist snapshot
-// failure does not surface as if node creation itself had failed.
-func TestCreateNodeIgnoresLateSnapshotFailure(t *testing.T) {
+// TestCreateNodeFailsEarlyWhenSnapshotSubsystemIsBroken verifies mutations do
+// not commit once the snapshot subsystem is detectably unhealthy up front.
+func TestCreateNodeFailsEarlyWhenSnapshotSubsystemIsBroken(t *testing.T) {
 	s := mustInit(t, StorageJSON)
 	if err := os.RemoveAll(s.snapshotsDir()); err != nil {
 		t.Fatalf("remove snapshots dir: %v", err)
@@ -1009,11 +1024,11 @@ func TestCreateNodeIgnoresLateSnapshotFailure(t *testing.T) {
 		t.Fatalf("block snapshots path: %v", err)
 	}
 	n := &Node{Frontmatter: Frontmatter{Title: "late snapshot failure", Status: StatusActive}}
-	mustNoErr(t, s.CreateNode(n))
-	got, err := s.GetNode(n.ID)
-	mustNoErr(t, err)
-	if got.Title != n.Title {
-		t.Fatalf("node mutation should survive late snapshot failure, got %+v", got)
+	if err := s.CreateNode(n); err == nil {
+		t.Fatal("expected snapshot preflight failure")
+	}
+	if ids, err := s.ListNodes(Filter{}); err == nil && len(ids) != 0 {
+		t.Fatalf("node must not persist after snapshot preflight failure, got %v", ids)
 	}
 }
 

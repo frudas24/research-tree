@@ -13,6 +13,9 @@ import (
 // createResource persists a new resource inventory record.
 func (s *Store) createResource(r Resource) error {
 	return s.withLock("create_resource", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		ApplyResourceDefaults(&r, nowUTC())
 		if err := ValidateResource(r); err != nil {
 			return err
@@ -38,6 +41,9 @@ func (s *Store) createResource(r Resource) error {
 // updateResource persists modifications to an existing resource.
 func (s *Store) updateResource(r Resource) error {
 	return s.withLock("update_resource", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		resources, err := s.readResources()
 		if err != nil {
 			return err
@@ -71,6 +77,9 @@ func (s *Store) updateResource(r Resource) error {
 // deleteResource removes a resource if it is not actively leased.
 func (s *Store) deleteResource(id string) error {
 	return s.withLock("delete_resource", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		leases, err := s.readLeases()
 		if err != nil {
 			return err
@@ -137,6 +146,9 @@ func (s *Store) listResources() ([]Resource, error) {
 // claimResource creates or keeps an active lease when capacity allows it.
 func (s *Store) claimResource(lease ResourceLease) error {
 	return s.withLock("claim_resource", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		lease.ClaimedAt = nowUTC()
 		if lease.Mode == "" {
 			lease.Mode = LeaseExclusive
@@ -219,6 +231,9 @@ func (s *Store) claimResource(lease ResourceLease) error {
 // releaseResource removes one active lease if present.
 func (s *Store) releaseResource(nodeID NodeID, resourceID string) error {
 	return s.withLock("release_resource", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		leases, err := s.readLeases()
 		if err != nil {
 			return err
@@ -356,6 +371,10 @@ func (s *Store) releaseNodeResourcesUnlocked(nodeID NodeID, action ResourceEvent
 		_ = s.appendResourceEvent(event)
 	}
 	return nil
+}
+
+func (s *Store) bestEffortReleaseNodeResources(nodeID NodeID, action ResourceEventAction) {
+	_ = s.releaseNodeResourcesUnlocked(nodeID, action)
 }
 
 // ApplyResourceDefaults fills default resource fields deterministically.

@@ -109,13 +109,13 @@ is taken from --body or --body-file if provided.`,
 			if err := validateTerminalOutcome(n.Status, n.Outcome); err != nil {
 				return err
 			}
-			if err := store.CreateNode(n); err != nil {
-				return err
-			}
-
-			// Feature linking
+			var rollbackOnFeatureError bool
 			if strings.TrimSpace(featureSpec) != "" {
 				spec := strings.TrimSpace(featureSpec)
+				role := retree.FeatureNodeRole(strings.TrimSpace(featureRole))
+				if role == "" {
+					role = retree.RoleImplementation
+				}
 				if createFeature && !store.FeatureExists(spec) {
 					var fromID retree.NodeID
 					if len(parents) > 0 {
@@ -127,13 +127,23 @@ is taken from --body or --body-file if provided.`,
 					}
 					spec = f.ID
 				}
-				role := retree.FeatureNodeRole(strings.TrimSpace(featureRole))
-				if role == "" {
-					role = retree.RoleImplementation
-				}
-				if err := store.LinkNodeToFeature(spec, n.ID, role); err != nil {
+				if _, err := store.GetFeature(spec); err != nil {
 					return fmt.Errorf("--feature: %w", err)
 				}
+				if err := store.CreateNode(n); err != nil {
+					return err
+				}
+				rollbackOnFeatureError = true
+				if err := store.LinkNodeToFeature(spec, n.ID, role); err != nil {
+					if rollbackOnFeatureError {
+						if derr := store.DeleteNode(n.ID, false); derr != nil {
+							return fmt.Errorf("--feature: %v (rollback node %04d failed: %v)", err, n.ID, derr)
+						}
+					}
+					return fmt.Errorf("--feature: %w", err)
+				}
+			} else if err := store.CreateNode(n); err != nil {
+				return err
 			}
 			msg := fmt.Sprintf("created node %04d", n.ID)
 			if w := lineageWarning(n); w != "" && !opts.OutputJSON {

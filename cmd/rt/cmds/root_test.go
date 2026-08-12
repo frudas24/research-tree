@@ -1694,6 +1694,26 @@ func TestCLINodeCreateLinkFeature(t *testing.T) {
 	}
 }
 
+// TestCLINodeCreateCreateFeatureFailsBeforePersist verifies a missing feature
+// spec rejected by --create-feature does not leave behind a created node.
+func TestCLINodeCreateCreateFeatureFailsBeforePersist(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+
+	if _, err := runCLI(t, "--research-root", root, "node", "create",
+		"--title", "impl", "--feature", "f9999", "--create-feature"); err == nil {
+		t.Fatal("expected create-feature with nonexistent canonical ID to fail")
+	}
+
+	out, err := runCLI(t, "--research-root", root, "--json", "node", "list")
+	if err != nil {
+		t.Fatalf("list nodes: %v", err)
+	}
+	if strings.Contains(out, `"title": "impl"`) {
+		t.Fatalf("failed feature validation must not leave a created node: %s", out)
+	}
+}
+
 // TestCLIFeatureLinkExistingNode verifies rt feature link.
 func TestCLIFeatureLinkExistingNode(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")

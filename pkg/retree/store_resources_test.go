@@ -233,3 +233,39 @@ func TestClaimResourceIgnoresLateEventFailure(t *testing.T) {
 		t.Fatalf("lease should persist despite event write failure, got %+v", leases)
 	}
 }
+
+// TestUpdateNodePreflightsAutoReleaseState verifies a node close fails before
+// persisting when leases.json is unreadable.
+func TestUpdateNodePreflightsAutoReleaseState(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	node := &Node{Frontmatter: Frontmatter{Title: "gpu run"}}
+	mustNoErr(t, s.CreateNode(node))
+	mustNoErr(t, os.WriteFile(s.leasesPath(), []byte("{broken}\n"), 0o644))
+
+	node.Status = StatusDone
+	node.Outcome = OutcomeSuccess
+	if err := s.UpdateNode(node); err == nil {
+		t.Fatal("expected update to fail before persisting when leases are corrupt")
+	}
+	got, err := s.GetNode(node.ID)
+	mustNoErr(t, err)
+	if got.Status != StatusActive || got.Outcome != OutcomeUnset {
+		t.Fatalf("node should remain unchanged after failed preflight: %+v", got.Frontmatter)
+	}
+}
+
+// TestDeleteNodePreflightsAutoReleaseState verifies delete fails before
+// removing the node when leases.json is unreadable.
+func TestDeleteNodePreflightsAutoReleaseState(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	node := &Node{Frontmatter: Frontmatter{Title: "gpu run"}}
+	mustNoErr(t, s.CreateNode(node))
+	mustNoErr(t, os.WriteFile(s.leasesPath(), []byte("{broken}\n"), 0o644))
+
+	if err := s.DeleteNode(node.ID, false); err == nil {
+		t.Fatal("expected delete to fail before persisting when leases are corrupt")
+	}
+	if _, err := s.GetNode(node.ID); err != nil {
+		t.Fatalf("node should still exist after failed delete preflight: %v", err)
+	}
+}

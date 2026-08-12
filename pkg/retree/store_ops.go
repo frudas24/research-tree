@@ -16,6 +16,9 @@ func (s *Store) createNode(n *Node) error {
 		return fmt.Errorf("%w: nil", ErrInvalidNode)
 	}
 	return s.withLock("create_node", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		g, err := s.loadGraph()
 		if err != nil {
 			return err
@@ -46,6 +49,9 @@ func (s *Store) updateNode(n *Node) error {
 		return fmt.Errorf("%w: id required", ErrInvalidNode)
 	}
 	return s.withLock("update_node", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		g, err := s.loadGraph()
 		if err != nil {
 			return err
@@ -67,6 +73,11 @@ func (s *Store) updateNode(n *Node) error {
 		if err := g.UpdateNode(n.ID, candidate); err != nil {
 			return err
 		}
+		if candidate.Status == StatusDone || candidate.Status == StatusPaused {
+			if _, err := s.readLeases(); err != nil {
+				return err
+			}
+		}
 		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); err != nil {
 			return err
 		}
@@ -75,9 +86,7 @@ func (s *Store) updateNode(n *Node) error {
 			if candidate.Status == StatusPaused {
 				action = ResourceEventAutoReleasePause
 			}
-			if err := s.releaseNodeResourcesUnlocked(candidate.ID, action); err != nil {
-				return err
-			}
+			s.bestEffortReleaseNodeResources(candidate.ID, action)
 		}
 		s.bestEffortSnapshot("update_node")
 		return nil
@@ -87,6 +96,9 @@ func (s *Store) updateNode(n *Node) error {
 // deleteNode removes a node, optionally forcing orphan of children.
 func (s *Store) deleteNode(id NodeID, force bool) error {
 	return s.withLock("delete_node", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		g, err := s.loadGraph()
 		if err != nil {
 			return err
@@ -106,12 +118,13 @@ func (s *Store) deleteNode(id NodeID, force bool) error {
 		if err := g.RemoveNode(id, force); err != nil {
 			return err
 		}
+		if _, err := s.readLeases(); err != nil {
+			return err
+		}
 		if err := s.persistGraphDelta(g, dirty, []NodeID{id}); err != nil {
 			return err
 		}
-		if err := s.releaseNodeResourcesUnlocked(id, ResourceEventAutoReleaseDelete); err != nil {
-			return err
-		}
+		s.bestEffortReleaseNodeResources(id, ResourceEventAutoReleaseDelete)
 		s.bestEffortSnapshot("delete_node")
 		return nil
 	})
@@ -126,6 +139,9 @@ func (s *Store) migrateStorageFormat(target StorageFormat) error {
 		return nil
 	}
 	return s.withLock("migrate_storage_format", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		nodes, err := s.loadAllNodes()
 		if err != nil {
 			return err
@@ -236,6 +252,9 @@ func (s *Store) invalidateClaim(target NodeID, refuter NodeID, reason string) er
 		reason = "invalidated"
 	}
 	return s.withLock("invalidate_claim", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
 		g, err := s.loadGraph()
 		if err != nil {
 			return err
@@ -260,12 +279,13 @@ func (s *Store) invalidateClaim(target NodeID, refuter NodeID, reason string) er
 		if err := g.UpdateNode(target, tn); err != nil {
 			return err
 		}
+		if _, err := s.listBranchWarnings("", false); err != nil {
+			return err
+		}
 		if err := s.persistGraphDelta(g, map[NodeID]struct{}{target: {}}, nil); err != nil {
 			return err
 		}
-		if err := s.generateWarningsForInvalidation(g, target); err != nil {
-			return err
-		}
+		s.bestEffortInvalidationWarnings(g, target)
 		s.bestEffortSnapshot("invalidate_claim")
 		return nil
 	})
@@ -314,4 +334,8 @@ func (s *Store) generateWarningsForInvalidation(g *Graph, rootCause NodeID) erro
 		openKey[k] = struct{}{}
 	}
 	return nil
+}
+
+func (s *Store) bestEffortInvalidationWarnings(g *Graph, rootCause NodeID) {
+	_ = s.generateWarningsForInvalidation(g, rootCause)
 }
