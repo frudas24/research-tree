@@ -56,7 +56,8 @@ research-tree/
 │   └── store_e2e_test.go    # E2E simulator (16 scenarios)
 ├── third_party/
 │   ├── commentlint/         # Doc comment linter (in-tree)
-│   └── golangci-lint/       # golangci-lint reference
+│   ├── golangci-lint/       # golangci-lint reference
+│   └── retree-bridge/       # bun:ffi TypeScript bindings (ffi.ts)
 ├── docs/                    # Documentation
 ├── TODO/                    # Historical implementation specs (0000–0005)
 ├── Makefile                 # Build pipeline

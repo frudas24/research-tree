@@ -32,3 +32,6 @@ third_party/golangci-lint/
 
 # Research tree storage
 .research/
+
+# JS/TS tooling
+node_modules/

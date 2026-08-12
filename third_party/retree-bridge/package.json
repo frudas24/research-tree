@@ -1,0 +1,8 @@
+{
+  "name": "retree-bridge",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "1.3.14"
+  }
+}
