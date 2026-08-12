@@ -247,6 +247,16 @@ func (s *Store) getNode(id NodeID) (*Node, error) {
 
 // persistGraph writes the in-memory graph to disk in the configured format.
 func (s *Store) persistGraph(g *Graph) error {
+	return s.persistGraphDelta(g, nil, nil)
+}
+
+// persistGraphDelta persists the graph. In JSON mode only dirty nodes are
+// written (and files for removed/orphaned nodes deleted), so a crash never
+// leaves the store in a state where every node file was already deleted.
+// dirty == nil means every node is written (full rewrite). removed lists
+// node IDs that no longer exist. Binary mode always rewrites nodes.bin
+// atomically as a single file.
+func (s *Store) persistGraphDelta(g *Graph, dirty map[NodeID]struct{}, removed []NodeID) error {
 	ids := make([]NodeID, 0, len(g.Nodes))
 	for id := range g.Nodes {
 		ids = append(ids, id)
@@ -257,7 +267,7 @@ func (s *Store) persistGraph(g *Graph) error {
 		nodes = append(nodes, g.Nodes[id])
 	}
 	if s.format == StorageJSON {
-		if err := s.writeAllNodesJSON(nodes); err != nil {
+		if err := s.writeAllNodesJSONDelta(nodes, dirty, removed); err != nil {
 			return err
 		}
 	} else {
@@ -271,23 +281,51 @@ func (s *Store) persistGraph(g *Graph) error {
 	return s.regenerateRelations(g)
 }
 
-// writeAllNodesJSON writes all nodes as individual JSON files.
-func (s *Store) writeAllNodesJSON(nodes []*Node) error {
+// writeAllNodesJSONDelta writes only dirty node files in JSON mode. Files for
+// node IDs in removed, or absent from the graph, are deleted. Unrelated node
+// files are left untouched, which removes the delete-all-then-rewrite crash
+// window and keeps single-node edits O(1) in file operations.
+func (s *Store) writeAllNodesJSONDelta(nodes []*Node, dirty map[NodeID]struct{}, removed []NodeID) error {
 	if err := os.MkdirAll(s.nodesDir(), 0o755); err != nil {
 		return err
+	}
+	inGraph := make(map[NodeID]struct{}, len(nodes))
+	for _, n := range nodes {
+		inGraph[n.ID] = struct{}{}
+	}
+	toDelete := make(map[NodeID]struct{}, len(removed))
+	for _, id := range removed {
+		toDelete[id] = struct{}{}
 	}
 	existing, err := os.ReadDir(s.nodesDir())
 	if err != nil {
 		return err
 	}
 	for _, e := range existing {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
-			if err := os.Remove(filepath.Join(s.nodesDir(), e.Name())); err != nil {
-				return err
-			}
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		id, perr := parseJSONNodeID(e.Name())
+		if perr != nil {
+			continue
+		}
+		if _, ok := inGraph[id]; !ok {
+			toDelete[id] = struct{}{}
 		}
 	}
+	for id := range toDelete {
+		name := filepath.Join(s.nodesDir(), fmt.Sprintf("%04d.json", id))
+		if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	writeAll := dirty == nil
 	for _, n := range nodes {
+		if !writeAll {
+			if _, ok := dirty[n.ID]; !ok {
+				continue
+			}
+		}
 		b, err := MarshalNodeJSON(n)
 		if err != nil {
 			return err
@@ -302,6 +340,19 @@ func (s *Store) writeAllNodesJSON(nodes []*Node) error {
 		}
 	}
 	return nil
+}
+
+// parseJSONNodeID extracts a NodeID from a node file name like "0042.json".
+func parseJSONNodeID(name string) (NodeID, error) {
+	base := strings.TrimSuffix(name, ".json")
+	if base == name || base == "" {
+		return 0, fmt.Errorf("%w: not a node file %q", ErrInvalidNode, name)
+	}
+	id, err := strconv.ParseUint(base, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return NodeID(id), nil
 }
 
 // writeAllNodesBIN writes all nodes using the binary codec with header.

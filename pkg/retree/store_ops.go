@@ -32,7 +32,7 @@ func (s *Store) createNode(n *Node) error {
 		if err := s.writeNextID(next + 1); err != nil {
 			return err
 		}
-		if err := s.persistGraph(g); err != nil {
+		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); err != nil {
 			return err
 		}
 		return s.createSnapshot("create_node")
@@ -66,7 +66,7 @@ func (s *Store) updateNode(n *Node) error {
 		if err := g.UpdateNode(n.ID, candidate); err != nil {
 			return err
 		}
-		if err := s.persistGraph(g); err != nil {
+		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); err != nil {
 			return err
 		}
 		if candidate.Status == StatusDone || candidate.Status == StatusPaused {
@@ -89,10 +89,22 @@ func (s *Store) deleteNode(id NodeID, force bool) error {
 		if err != nil {
 			return err
 		}
+		// When forced, children lose the deleted parent from their Parents
+		// list, so their files must be rewritten too.
+		var dirty map[NodeID]struct{}
+		if force {
+			children := g.GetChildren(id)
+			if len(children) > 0 {
+				dirty = make(map[NodeID]struct{}, len(children))
+				for _, cid := range children {
+					dirty[cid] = struct{}{}
+				}
+			}
+		}
 		if err := g.RemoveNode(id, force); err != nil {
 			return err
 		}
-		if err := s.persistGraph(g); err != nil {
+		if err := s.persistGraphDelta(g, dirty, []NodeID{id}); err != nil {
 			return err
 		}
 		if err := s.releaseNodeResourcesUnlocked(id, ResourceEventAutoReleaseDelete); err != nil {
@@ -244,7 +256,7 @@ func (s *Store) invalidateClaim(target NodeID, refuter NodeID, reason string) er
 		if err := g.UpdateNode(target, tn); err != nil {
 			return err
 		}
-		if err := s.persistGraph(g); err != nil {
+		if err := s.persistGraphDelta(g, map[NodeID]struct{}{target: {}}, nil); err != nil {
 			return err
 		}
 		if err := s.generateWarningsForInvalidation(g, target); err != nil {
