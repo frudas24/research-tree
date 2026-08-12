@@ -191,6 +191,9 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 }
 
 // untarGz extracts a tar.gz archive to the given directory.
+// Entries must be relative paths without ".." segments; anything else
+// (absolute paths, symlinks, hardlinks, devices) is rejected or skipped so
+// a crafted archive cannot write outside dst.
 func untarGz(src, dst string) error {
 	f, err := os.Open(src)
 	if err != nil {
@@ -211,29 +214,50 @@ func untarGz(src, dst string) error {
 		if err != nil {
 			return err
 		}
+		if !isSafeArchivePath(h.Name) {
+			return fmt.Errorf("unsafe archive entry %q: absolute or .. path", h.Name)
+		}
 		target := filepath.Join(dst, filepath.FromSlash(h.Name))
-		if h.FileInfo().IsDir() {
+		switch h.Typeflag {
+		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				return err
 			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			out, err := os.Create(target)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				_ = out.Close()
+				return err
+			}
+			if err := out.Close(); err != nil {
+				return err
+			}
+		default:
+			// Symlinks, hardlinks, and special files are never materialized.
 			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		out, err := os.Create(target)
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(out, tr); err != nil {
-			_ = out.Close()
-			return err
-		}
-		if err := out.Close(); err != nil {
-			return err
 		}
 	}
 	return nil
+}
+
+// isSafeArchivePath rejects absolute paths and any path containing a ".."
+// segment, preventing archive entries from escaping the extraction root.
+func isSafeArchivePath(name string) bool {
+	if filepath.IsAbs(name) {
+		return false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
+		if part == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // copyDir recursively copies a directory tree.
