@@ -1,6 +1,7 @@
 package retree
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -80,5 +81,61 @@ func TestGetNodeJSONIDMismatchAdversarial(t *testing.T) {
 	}
 	if _, err := s.GetNode(7); err == nil {
 		t.Fatalf("ID mismatch must be rejected")
+	}
+}
+
+// TestGetNodeBINRejectsUnsafeIndexLength verifies crafted nodes.idx lengths
+// cannot panic or reserve absurd memory.
+func TestGetNodeBINRejectsUnsafeIndexLength(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageBIN)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	n := &Node{Frontmatter: Frontmatter{Title: "safe", Status: StatusActive}}
+	if err := s.CreateNode(n); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	raw := map[string]binIndexEntry{
+		"1": {Offset: int64(binHeaderSize), Length: -1, Checksum: 0},
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal idx: %v", err)
+	}
+	if err := os.WriteFile(s.nodesIdxPath(), append(b, '\n'), 0o644); err != nil {
+		t.Fatalf("write idx: %v", err)
+	}
+	if _, err := s.GetNode(1); err == nil {
+		t.Fatalf("unsafe negative index length must be rejected")
+	}
+}
+
+// TestQueryNodesBINRejectsMismatchedIndexedPayload verifies full BIN scans
+// reject an index entry that points at another node's payload.
+func TestQueryNodesBINRejectsMismatchedIndexedPayload(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageBIN)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	a := &Node{Frontmatter: Frontmatter{Title: "A", Status: StatusActive}}
+	bn := &Node{Frontmatter: Frontmatter{Title: "B", Status: StatusActive}}
+	if err := s.CreateNode(a); err != nil {
+		t.Fatalf("create a: %v", err)
+	}
+	if err := s.CreateNode(bn); err != nil {
+		t.Fatalf("create b: %v", err)
+	}
+	idx, err := s.readBinIndex()
+	if err != nil {
+		t.Fatalf("read idx: %v", err)
+	}
+	idx[a.ID] = idx[bn.ID]
+	if err := s.writeBinIndex(idx); err != nil {
+		t.Fatalf("write idx: %v", err)
+	}
+	if _, err := s.QueryNodes(Filter{}); err == nil {
+		t.Fatalf("mismatched payload identity must be rejected")
 	}
 }

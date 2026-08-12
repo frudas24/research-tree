@@ -12,11 +12,12 @@ func TestABIOpenLoadsExistingGraphAndQueries(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	s, err := Init(root, StorageJSON)
 	mustNoErr(t, err)
-	a := &Node{Frontmatter: Frontmatter{Title: "a", Status: StatusDone}}
+	a := &Node{Frontmatter: Frontmatter{Title: "a", Status: StatusDone, Outcome: OutcomeSuccess}}
 	mustNoErr(t, s.CreateNode(a))
 	b := &Node{Frontmatter: Frontmatter{
 		Title:           "b",
 		Status:          StatusDone,
+		Outcome:         OutcomeSuccess,
 		Parents:         []NodeID{a.ID},
 		MilestoneClass:  MilestoneGolden,
 		MilestoneKind:   MilestoneKindPivot,

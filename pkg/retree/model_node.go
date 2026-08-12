@@ -133,6 +133,9 @@ func ValidateNode(n *Node) error {
 	if !slices.Contains(validOutcomes, n.Outcome) {
 		return fmt.Errorf("%w: outcome=%q", ErrInvalidNode, n.Outcome)
 	}
+	if n.Status == StatusDone && n.Outcome == OutcomeUnset {
+		return fmt.Errorf("%w: done nodes require a terminal outcome", ErrInvalidNode)
+	}
 	if !slices.Contains(validClaimStatuses, n.ClaimStatus) {
 		return fmt.Errorf("%w: %q", ErrInvalidClaimStatus, n.ClaimStatus)
 	}
@@ -349,10 +352,21 @@ func CloneNode(n *Node) *Node {
 	cpy.SupersededBy = append([]NodeID(nil), n.SupersededBy...)
 	cpy.Tags = append([]string(nil), n.Tags...)
 	cpy.Commits = append([]GitCommit(nil), n.Commits...)
-	cpy.Runs = append([]RunRecord(nil), n.Runs...)
 	cpy.Artifacts = append([]Artifact(nil), n.Artifacts...)
 	cpy.InvalidatedBy = append([]NodeID(nil), n.InvalidatedBy...)
+	cpy.PoisonedBy = append([]NodeID(nil), n.PoisonedBy...)
+	cpy.RevalidatedBy = append([]NodeID(nil), n.RevalidatedBy...)
 	cpy.Relations = append([]Relation(nil), n.Relations...)
+	if len(n.Runs) > 0 {
+		cpy.Runs = make([]RunRecord, len(n.Runs))
+		copy(cpy.Runs, n.Runs)
+		for i := range cpy.Runs {
+			if n.Runs[i].Valid != nil {
+				v := *n.Runs[i].Valid
+				cpy.Runs[i].Valid = &v
+			}
+		}
+	}
 	if n.PrimaryParent != nil {
 		pp := *n.PrimaryParent
 		cpy.PrimaryParent = &pp

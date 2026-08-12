@@ -31,15 +31,17 @@ func TestBridgeMergeUpdate(t *testing.T) {
 	}
 
 	// Simulate partial update via JSON merge (what the bridge does)
-	partialJSON := `{"id":1,"status":"done","claim_status":"validated"}`
+	partialJSON := `{"id":1,"status":"done","outcome":"success","claim_status":"validated"}`
 
 	// This is the exact logic from retree_update_node in the bridge
 	var partial map[string]any
 	if err := json.Unmarshal([]byte(partialJSON), &partial); err != nil {
 		t.Fatal(err)
 	}
-	idFloat := partial["id"].(float64)
-	id := retree.NodeID(idFloat)
+	id, err := parsePartialNodeID(mustRawMap(t, partialJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	existing, err := s.GetNode(id)
 	if err != nil {
@@ -108,8 +110,10 @@ func TestBridgeMergeUpdatePreservesMilestoneFields(t *testing.T) {
 	if err := json.Unmarshal([]byte(partialJSON), &partial); err != nil {
 		t.Fatal(err)
 	}
-	idFloat := partial["id"].(float64)
-	id := retree.NodeID(idFloat)
+	id, err := parsePartialNodeID(mustRawMap(t, partialJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
 	existing, err := s.GetNode(id)
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +178,7 @@ func TestBridgeCreateAndQuery(t *testing.T) {
 	}
 
 	// Status query
-	_ = s.UpdateNode(&retree.Node{Frontmatter: retree.Frontmatter{ID: 2, Title: "child", Status: retree.StatusDone, ClaimStatus: retree.ClaimProvisional}})
+	_ = s.UpdateNode(&retree.Node{Frontmatter: retree.Frontmatter{ID: 2, Title: "child", Status: retree.StatusDone, Outcome: retree.OutcomeSuccess, ClaimStatus: retree.ClaimProvisional}})
 	active, _ := s.ListNodes(retree.Filter{Status: retree.StatusActive})
 	if len(active) != 2 {
 		t.Fatalf("active filter: expected 2, got %d", len(active))
@@ -186,6 +190,29 @@ func mustNoErr(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func mustRawMap(t *testing.T, s string) map[string]json.RawMessage {
+	t.Helper()
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		t.Fatalf("raw map: %v", err)
+	}
+	return out
+}
+
+// TestParsePartialNodeIDRejectsImpreciseJSON verifies bridge updates reject
+// node IDs that JSON cannot represent exactly or that are not integers.
+func TestParsePartialNodeIDRejectsImpreciseJSON(t *testing.T) {
+	for _, raw := range []string{
+		`{"id":1.5}`,
+		`{"id":9007199254740993}`,
+		`{"id":0}`,
+	} {
+		if _, err := parsePartialNodeID(mustRawMap(t, raw)); err == nil {
+			t.Fatalf("expected invalid bridge node id for %s", raw)
+		}
 	}
 }
 

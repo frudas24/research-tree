@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -221,19 +222,19 @@ func (s *Store) loadAllNodesBIN() ([]*Node, error) {
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*Node, 0, len(ids))
 	for _, id := range ids {
 		entry := idx[id]
-		buf := make([]byte, entry.Length)
-		if _, err := f.ReadAt(buf, entry.Offset); err != nil {
-			return nil, err
-		}
-		if crc32.ChecksumIEEE(buf) != entry.Checksum {
-			return nil, fmt.Errorf("checksum mismatch for node %d", id)
-		}
-		n, err := UnmarshalNodeBinary(buf)
+		n, err := s.readBinNodeAt(f, fi.Size(), id, entry)
 		if err != nil {
 			return nil, err
+		}
+		if n.ID != id {
+			return nil, fmt.Errorf("%w: index entry %d decodes to node %d", ErrInvalidNode, id, n.ID)
 		}
 		out = append(out, n)
 	}
@@ -291,14 +292,11 @@ func (s *Store) getNodeBIN(id NodeID) (*Node, error) {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	buf := make([]byte, entry.Length)
-	if _, err := f.ReadAt(buf, entry.Offset); err != nil {
+	fi, err := f.Stat()
+	if err != nil {
 		return nil, err
 	}
-	if crc32.ChecksumIEEE(buf) != entry.Checksum {
-		return nil, fmt.Errorf("checksum mismatch for node %d", id)
-	}
-	n, err := UnmarshalNodeBinary(buf)
+	n, err := s.readBinNodeAt(f, fi.Size(), id, entry)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +304,43 @@ func (s *Store) getNodeBIN(id NodeID) (*Node, error) {
 		return nil, fmt.Errorf("%w: index entry %d decodes to node %d", ErrInvalidNode, id, n.ID)
 	}
 	return n, nil
+}
+
+// readBinNodeAt validates one index entry, reads its payload, verifies its CRC,
+// and decodes the node.
+func (s *Store) readBinNodeAt(f *os.File, fileSize int64, id NodeID, entry binIndexEntry) (*Node, error) {
+	if err := validateBinIndexEntry(fileSize, entry); err != nil {
+		return nil, fmt.Errorf("node %d: %w", id, err)
+	}
+	buf := make([]byte, int(entry.Length))
+	if _, err := f.ReadAt(buf, entry.Offset); err != nil {
+		return nil, err
+	}
+	if crc32.ChecksumIEEE(buf) != entry.Checksum {
+		return nil, fmt.Errorf("checksum mismatch for node %d", id)
+	}
+	return UnmarshalNodeBinary(buf)
+}
+
+// validateBinIndexEntry rejects malformed or unsafe nodes.idx entries before
+// they can panic or reserve absurd amounts of memory.
+func validateBinIndexEntry(fileSize int64, entry binIndexEntry) error {
+	if entry.Offset < binHeaderSize {
+		return fmt.Errorf("%w: invalid node offset %d", ErrInvalidNode, entry.Offset)
+	}
+	if entry.Length <= 0 {
+		return fmt.Errorf("%w: invalid node length %d", ErrInvalidNode, entry.Length)
+	}
+	if entry.Length > int64(math.MaxInt) {
+		return fmt.Errorf("%w: node length %d exceeds process limit", ErrInvalidNode, entry.Length)
+	}
+	if entry.Offset > fileSize {
+		return fmt.Errorf("%w: node offset %d exceeds file size %d", ErrInvalidNode, entry.Offset, fileSize)
+	}
+	if entry.Length > fileSize-entry.Offset {
+		return fmt.Errorf("%w: node range offset=%d length=%d exceeds file size %d", ErrInvalidNode, entry.Offset, entry.Length, fileSize)
+	}
+	return nil
 }
 
 // persistGraph writes the in-memory graph to disk in the configured format.

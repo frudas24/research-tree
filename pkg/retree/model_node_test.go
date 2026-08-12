@@ -161,11 +161,14 @@ func TestUnmarshalNodeJSONMinimumAndFull(t *testing.T) {
 
 // TestCloneNodeDeepCopy verifies CloneNode produces a deep copy.
 func TestCloneNodeDeepCopy(t *testing.T) {
+	valid := true
 	n := &Node{
-		Frontmatter: Frontmatter{Title: "a", Parents: []NodeID{1}, ContinuedBy: []NodeID{2}, SupersededBy: []NodeID{3}, Tags: []string{"x"}},
-		Commits:     []GitCommit{{Hash: "abc"}},
-		Runs:        []RunRecord{{Host: "local", Command: "go test ./..."}},
-		Artifacts:   []Artifact{{Mode: ArtifactEmbedded, Path: "p"}},
+		Frontmatter:   Frontmatter{Title: "a", Parents: []NodeID{1}, ContinuedBy: []NodeID{2}, SupersededBy: []NodeID{3}, Tags: []string{"x"}},
+		Commits:       []GitCommit{{Hash: "abc"}},
+		Runs:          []RunRecord{{Host: "local", Command: "go test ./...", Valid: &valid}},
+		Artifacts:     []Artifact{{Mode: ArtifactEmbedded, Path: "p"}},
+		PoisonedBy:    []NodeID{4},
+		RevalidatedBy: []NodeID{5},
 	}
 	cpy := CloneNode(n)
 	cpy.Parents[0] = 9
@@ -174,7 +177,11 @@ func TestCloneNodeDeepCopy(t *testing.T) {
 	cpy.Tags[0] = "y"
 	cpy.Commits[0].Hash = "def"
 	cpy.Runs[0].Host = "gpu-node-0"
-	if n.Parents[0] == 9 || n.ContinuedBy[0] == 8 || n.SupersededBy[0] == 7 || n.Tags[0] == "y" || n.Commits[0].Hash == "def" || n.Runs[0].Host == "gpu-node-0" {
+	falseValue := false
+	cpy.Runs[0].Valid = &falseValue
+	cpy.PoisonedBy[0] = 10
+	cpy.RevalidatedBy[0] = 11
+	if n.Parents[0] == 9 || n.ContinuedBy[0] == 8 || n.SupersededBy[0] == 7 || n.Tags[0] == "y" || n.Commits[0].Hash == "def" || n.Runs[0].Host == "gpu-node-0" || *n.Runs[0].Valid == false || n.PoisonedBy[0] == 10 || n.RevalidatedBy[0] == 11 {
 		t.Fatal("expected deep copy")
 	}
 }
@@ -196,6 +203,17 @@ func TestApplyNodeDefaultsSetsOutcome(t *testing.T) {
 	ApplyNodeDefaults(n, time.Now())
 	if n.Outcome != OutcomeUnset {
 		t.Fatalf("expected outcome unset, got %q", n.Outcome)
+	}
+}
+
+// TestValidateNodeRejectsDoneWithoutOutcome verifies done nodes require a
+// terminal outcome in the core model, not just the CLI.
+func TestValidateNodeRejectsDoneWithoutOutcome(t *testing.T) {
+	n := &Node{Frontmatter: Frontmatter{Title: "terminal", Status: StatusDone}}
+	ApplyNodeDefaults(n, time.Now())
+	err := ValidateNode(n)
+	if !errors.Is(err, ErrInvalidNode) {
+		t.Fatalf("expected ErrInvalidNode for done node without outcome, got %v", err)
 	}
 }
 

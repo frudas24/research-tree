@@ -17,6 +17,7 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -140,15 +141,14 @@ func retree_update_node(handle uintptr, nodeJSON *C.char) *C.char {
 	}
 
 	// Parse the partial input to extract the node ID
-	var partial map[string]any
+	var partial map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(C.GoString(nodeJSON)), &partial); err != nil {
 		return jsonError(err)
 	}
-	idFloat, ok := partial["id"].(float64)
-	if !ok {
-		return jsonError(fmt.Errorf("id required in update payload"))
+	id, err := parsePartialNodeID(partial)
+	if err != nil {
+		return jsonError(err)
 	}
-	id := retree.NodeID(idFloat)
 
 	// Get existing node and merge the partial fields on top
 	existing, err := s.GetNode(id)
@@ -158,7 +158,11 @@ func retree_update_node(handle uintptr, nodeJSON *C.char) *C.char {
 	existingBytes, _ := json.Marshal(existing)
 	var merged map[string]any
 	_ = json.Unmarshal(existingBytes, &merged)
-	for k, v := range partial {
+	for k, raw := range partial {
+		var v any
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return jsonError(err)
+		}
 		merged[k] = v
 	}
 	mergedBytes, _ := json.Marshal(merged)
@@ -175,6 +179,34 @@ func retree_update_node(handle uintptr, nodeJSON *C.char) *C.char {
 		return jsonError(err)
 	}
 	return jsonResult(updated)
+}
+
+func parsePartialNodeID(partial map[string]json.RawMessage) (retree.NodeID, error) {
+	raw, ok := partial["id"]
+	if !ok {
+		return 0, fmt.Errorf("id required in update payload")
+	}
+	var num json.Number
+	if err := json.Unmarshal(raw, &num); err != nil {
+		return 0, fmt.Errorf("id must be a JSON number")
+	}
+	if i, err := strconv.ParseInt(num.String(), 10, 64); err == nil {
+		if i <= 0 {
+			return 0, fmt.Errorf("id must be positive")
+		}
+		if i > 1<<53 {
+			return 0, fmt.Errorf("id %q exceeds precise JSON integer range", num.String())
+		}
+		return retree.NodeID(i), nil
+	}
+	f, err := num.Float64()
+	if err != nil || math.Trunc(f) != f || f <= 0 {
+		return 0, fmt.Errorf("invalid id %q", num.String())
+	}
+	if f > float64(1<<53) {
+		return 0, fmt.Errorf("id %q exceeds precise JSON integer range", num.String())
+	}
+	return retree.NodeID(uint64(f)), nil
 }
 
 //export retree_delete_node
