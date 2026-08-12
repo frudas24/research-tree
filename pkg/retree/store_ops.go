@@ -281,7 +281,9 @@ func (s *Store) generateWarningsForInvalidation(g *Graph, rootCause NodeID) erro
 			continue
 		}
 		w := BranchWarning{
-			ID:            fmt.Sprintf("warn_%d_%04d", time.Now().Unix(), id),
+			// Nanosecond precision plus both endpoints keeps IDs unique even when
+			// two different root causes hit the same impacted node in one second.
+			ID:            fmt.Sprintf("warn_%d_%d_%04d", time.Now().UnixNano(), rootCause, id),
 			Agent:         agent,
 			RootCauseNode: rootCause,
 			ImpactedNode:  id,

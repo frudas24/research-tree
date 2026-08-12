@@ -1,7 +1,7 @@
 package retree
 
 import (
-	"errors"
+	"encoding/json"
 	"os"
 	"sort"
 	"time"
@@ -55,20 +55,19 @@ func (s *Store) ackBranchWarning(warningID string) error {
 // rewriteAlerts atomically rewrites the alerts file.
 func rewriteAlerts(path string, warnings []BranchWarning) error {
 	tmp := path + ".tmp"
-	if err := os.RemoveAll(tmp); err != nil {
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
 		return err
 	}
+	enc := json.NewEncoder(f)
 	for _, w := range warnings {
-		if err := appendJSONLine(tmp, w); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
-	}
-	if _, err := os.Stat(tmp); errors.Is(err, os.ErrNotExist) {
-		if err := os.WriteFile(tmp, nil, 0o644); err != nil {
+		if err := enc.Encode(w); err != nil {
+			_ = f.Close()
 			return err
 		}
+	}
+	if err := f.Close(); err != nil {
+		return err
 	}
 	return os.Rename(tmp, path)
 }
