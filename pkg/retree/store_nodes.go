@@ -69,6 +69,75 @@ func (s *Store) loadAllNodesJSON() ([]*Node, error) {
 	return out, nil
 }
 
+// ensureBinIndexPresent fails loudly when nodes.bin contains data but
+// nodes.idx is missing. Treating a missing index as an empty graph silently
+// destroys the binary data on the next write; regeneration must be explicit.
+func (s *Store) ensureBinIndexPresent() error {
+	if _, err := os.Stat(s.nodesIdxPath()); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	bin, err := os.ReadFile(s.nodesBinPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // no binary store yet; nothing to index
+		}
+		return err
+	}
+	if len(bin) > binHeaderSize {
+		return fmt.Errorf("bin index %s is missing but %s holds data; run RegenerateBinIndex (rt storage reindex) before writing", s.nodesIdxPath(), s.nodesBinPath())
+	}
+	return nil
+}
+
+// regenerateBinIndex rebuilds nodes.idx by scanning nodes.bin sequentially.
+// It is the recovery path for a lost or corrupted binary index.
+func (s *Store) regenerateBinIndex() error {
+	if s.format != StorageBIN {
+		return fmt.Errorf("%w: binary index only exists in bin mode", ErrInvalidNode)
+	}
+	idx, err := s.scanBinIndex()
+	if err != nil {
+		return err
+	}
+	return s.writeBinIndex(idx)
+}
+
+// scanBinIndex sequentially decodes every node payload in nodes.bin,
+// recomputing offsets, lengths, and CRC32 checksums for the index.
+func (s *Store) scanBinIndex() (map[NodeID]binIndexEntry, error) {
+	data, err := os.ReadFile(s.nodesBinPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[NodeID]binIndexEntry{}, nil
+		}
+		return nil, err
+	}
+	if len(data) < binHeaderSize {
+		return nil, fmt.Errorf("%w: truncated binary file (%d bytes)", ErrInvalidNode, len(data))
+	}
+	if _, err := ReadBinHeader(data[:binHeaderSize]); err != nil {
+		return nil, err
+	}
+	pos := binHeaderSize
+	idx := make(map[NodeID]binIndexEntry)
+	for pos < len(data) {
+		start := pos
+		n, consumed, err := decodeNodeBinary(data[start:])
+		if err != nil {
+			return nil, fmt.Errorf("regenerate bin index: node at offset %d: %w", start, err)
+		}
+		idx[n.ID] = binIndexEntry{
+			Offset:   int64(start),
+			Length:   int64(consumed),
+			Checksum: crc32.ChecksumIEEE(data[start : start+consumed]),
+		}
+		pos += consumed
+	}
+	return idx, nil
+}
+
 // readBinIndex reads the binary index from nodes.idx.
 func (s *Store) readBinIndex() (map[NodeID]binIndexEntry, error) {
 	b, err := os.ReadFile(s.nodesIdxPath())
@@ -115,6 +184,9 @@ func (s *Store) writeBinIndex(idx map[NodeID]binIndexEntry) error {
 
 // loadAllNodesBIN loads nodes from the binary storage format with header validation.
 func (s *Store) loadAllNodesBIN() ([]*Node, error) {
+	if err := s.ensureBinIndexPresent(); err != nil {
+		return nil, err
+	}
 	idx, err := s.readBinIndex()
 	if err != nil {
 		return nil, err

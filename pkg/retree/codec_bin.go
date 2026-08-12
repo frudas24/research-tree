@@ -374,10 +374,25 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// UnmarshalNodeBinary decodes a node from the binary wire format v1.
+// UnmarshalNodeBinary decodes a single complete node payload from b,
+// rejecting trailing bytes.
 func UnmarshalNodeBinary(b []byte) (*Node, error) {
+	n, consumed, err := decodeNodeBinary(b)
+	if err != nil {
+		return nil, err
+	}
+	if consumed != len(b) {
+		return nil, fmt.Errorf("%w: %d trailing bytes after node payload", ErrInvalidNode, len(b)-consumed)
+	}
+	return n, nil
+}
+
+// decodeNodeBinary decodes one node from b and reports how many bytes it
+// consumed, enabling sequential scans of concatenated payloads (for example
+// rebuilding nodes.idx from nodes.bin).
+func decodeNodeBinary(b []byte) (*Node, int, error) {
 	if len(b) == 0 {
-		return nil, fmt.Errorf("%w: empty payload", ErrInvalidNode)
+		return nil, 0, fmt.Errorf("%w: empty payload", ErrInvalidNode)
 	}
 	pos := 0
 	n := &Node{}
@@ -385,74 +400,74 @@ func UnmarshalNodeBinary(b []byte) (*Node, error) {
 	// schema_version
 	sv, err := binReadU16(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.SchemaVersion = SchemaVersion(sv)
 	// id
 	id, err := binReadU64(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.ID = NodeID(id)
 	// title
 	title, err := binReadString(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Title = title
 	// status
 	sb, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	status, ok := binToStatus[sb]
 	if !ok {
-		return nil, fmt.Errorf("%w: unknown status byte %d", ErrInvalidStatus, sb)
+		return nil, 0, fmt.Errorf("%w: unknown status byte %d", ErrInvalidStatus, sb)
 	}
 	n.Status = status
 	// claim_status
 	cb, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	claim, ok := binToClaim[cb]
 	if !ok {
-		return nil, fmt.Errorf("%w: unknown claim status byte %d", ErrInvalidClaimStatus, cb)
+		return nil, 0, fmt.Errorf("%w: unknown claim status byte %d", ErrInvalidClaimStatus, cb)
 	}
 	n.ClaimStatus = claim
 	// outcome
 	ob, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	outcome, ok := binToOutcome[ob]
 	if !ok {
-		return nil, fmt.Errorf("%w: unknown outcome byte %d", ErrInvalidNode, ob)
+		return nil, 0, fmt.Errorf("%w: unknown outcome byte %d", ErrInvalidNode, ob)
 	}
 	n.Outcome = outcome
 	// parents
 	parents, err := binReadU64Slice(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Parents = parents
 	// agent
 	agent, err := binReadString(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Agent = agent
 	// tags
 	numTags, err := binReadU16(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if numTags > 0 {
 		tags := make([]string, 0, numTags)
 		for i := uint16(0); i < numTags; i++ {
 			tag, rerr := binReadString(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			tags = append(tags, tag)
 		}
@@ -461,36 +476,36 @@ func UnmarshalNodeBinary(b []byte) (*Node, error) {
 	// created
 	created, err := binReadI64(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Created = binToTime(created)
 	// modified
 	modified, err := binReadI64(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Modified = binToTime(modified)
 	// revision
 	revision, err := binReadU64(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Revision = revision
 	// commits
 	numCommits, err := binReadU16(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if numCommits > 0 {
 		commits := make([]GitCommit, 0, numCommits)
 		for i := uint16(0); i < numCommits; i++ {
 			hash, rerr := binReadString(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			msg, rerr := binReadString32(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			commits = append(commits, GitCommit{Hash: hash, Message: msg})
 		}
@@ -499,34 +514,34 @@ func UnmarshalNodeBinary(b []byte) (*Node, error) {
 	// artifacts
 	numArtifacts, err := binReadU16(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if numArtifacts > 0 {
 		artifacts := make([]Artifact, 0, numArtifacts)
 		for i := uint16(0); i < numArtifacts; i++ {
 			mb, rerr := binReadU8(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			mode, ok := binToArtifactMode[mb]
 			if !ok {
-				return nil, fmt.Errorf("%w: unknown artifact mode byte %d", ErrInvalidArtifact, mb)
+				return nil, 0, fmt.Errorf("%w: unknown artifact mode byte %d", ErrInvalidArtifact, mb)
 			}
 			host, rerr := binReadString(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			path, rerr := binReadString(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			desc, rerr := binReadString(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			size, rerr := binReadI64(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			artifacts = append(artifacts, Artifact{Mode: mode, Host: host, Path: path, Description: desc, SizeBytes: size})
 		}
@@ -535,86 +550,86 @@ func UnmarshalNodeBinary(b []byte) (*Node, error) {
 	// invalidated_by
 	invBy, err := binReadU64Slice(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.InvalidatedBy = invBy
 	// invalidation_reason
 	reason, err := binReadString(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.InvalidationReason = reason
 	// body
 	body, err := binReadString32(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Body = body
 	if pos == len(b) {
-		return n, nil
+		return n, pos, nil
 	}
 	// optional semantic extensions added after the legacy payload
 	scope, err := binReadString32(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Scope = scope
 	exitCriteria, err := binReadString32(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.ExitCriteria = exitCriteria
 	continuedBy, err := binReadU64Slice(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.ContinuedBy = continuedBy
 	supersededBy, err := binReadU64Slice(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.SupersededBy = supersededBy
 	if pos == len(b) {
-		return n, nil
+		return n, pos, nil
 	}
 	runCount, err := binReadU16(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if runCount > 0 {
 		runs := make([]RunRecord, 0, runCount)
 		for i := uint16(0); i < runCount; i++ {
 			ts, rerr := binReadI64(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			host, rerr := binReadString32(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			command, rerr := binReadString32(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			outDir, rerr := binReadString32(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			seed, rerr := binReadString32(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			eta, rerr := binReadString32(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			cost, rerr := binReadString32(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			note, rerr := binReadString32(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			runs = append(runs, RunRecord{
 				Timestamp: binToTime(ts),
@@ -630,180 +645,177 @@ func UnmarshalNodeBinary(b []byte) (*Node, error) {
 		n.Runs = runs
 	}
 	if pos == len(b) {
-		return n, nil
+		return n, pos, nil
 	}
 	validityCount, err := binReadU16(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	for i := uint16(0); i < validityCount && int(i) < len(n.Runs); i++ {
 		present, rerr := binReadU8(b, &pos)
 		if rerr != nil {
-			return nil, rerr
+			return nil, 0, rerr
 		}
 		if present == 1 {
 			value, rerr := binReadU8(b, &pos)
 			if rerr != nil {
-				return nil, rerr
+				return nil, 0, rerr
 			}
 			v := value == 1
 			n.Runs[i].Valid = &v
 		}
 		invalidReason, rerr := binReadString32(b, &pos)
 		if rerr != nil {
-			return nil, rerr
+			return nil, 0, rerr
 		}
 		n.Runs[i].InvalidReason = invalidReason
 	}
 	if pos == len(b) {
-		return n, nil
+		return n, pos, nil
 	}
 	runEndpointCount, err := binReadU16(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	for i := uint16(0); i < runEndpointCount && int(i) < len(n.Runs); i++ {
 		resourceID, rerr := binReadString32(b, &pos)
 		if rerr != nil {
-			return nil, rerr
+			return nil, 0, rerr
 		}
 		endpoint, rerr := binReadString32(b, &pos)
 		if rerr != nil {
-			return nil, rerr
+			return nil, 0, rerr
 		}
 		endpointKind, rerr := binReadString32(b, &pos)
 		if rerr != nil {
-			return nil, rerr
+			return nil, 0, rerr
 		}
 		n.Runs[i].ResourceID = resourceID
 		n.Runs[i].Endpoint = endpoint
 		n.Runs[i].EndpointKind = EndpointKind(endpointKind)
 	}
 	if pos == len(b) {
-		return n, nil
+		return n, pos, nil
 	}
 	milestoneClassByte, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	milestoneClass, ok := binToMilestoneClass(milestoneClassByte)
 	if !ok {
-		return nil, fmt.Errorf("%w: unknown milestone class byte %d", ErrInvalidNode, milestoneClassByte)
+		return nil, 0, fmt.Errorf("%w: unknown milestone class byte %d", ErrInvalidNode, milestoneClassByte)
 	}
 	n.MilestoneClass = milestoneClass
 	milestoneKindByte, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	milestoneKind, ok := binToMilestoneKind(milestoneKindByte)
 	if !ok {
-		return nil, fmt.Errorf("%w: unknown milestone kind byte %d", ErrInvalidNode, milestoneKindByte)
+		return nil, 0, fmt.Errorf("%w: unknown milestone kind byte %d", ErrInvalidNode, milestoneKindByte)
 	}
 	n.MilestoneKind = milestoneKind
 	milestoneReason, err := binReadString32(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.MilestoneReason = milestoneReason
 	if pos == len(b) {
-		return n, nil
+		return n, pos, nil
 	}
 	marker, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if marker != relationExtensionMarker {
-		return nil, fmt.Errorf("%w: unknown extension marker byte %d", ErrInvalidNode, marker)
+		return nil, 0, fmt.Errorf("%w: unknown extension marker byte %d", ErrInvalidNode, marker)
 	}
 	// relations
 	relCount, err := binReadU16(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.Relations = make([]Relation, 0, relCount)
 	for i := uint16(0); i < relCount; i++ {
 		rtByte, rerr := binReadU8(b, &pos)
 		if rerr != nil {
-			return nil, rerr
+			return nil, 0, rerr
 		}
 		rt, ok := binToRelationType[rtByte]
 		if !ok {
-			return nil, fmt.Errorf("%w: unknown relation type byte %d", ErrInvalidNode, rtByte)
+			return nil, 0, fmt.Errorf("%w: unknown relation type byte %d", ErrInvalidNode, rtByte)
 		}
 		target, rerr := binReadU64(b, &pos)
 		if rerr != nil {
-			return nil, rerr
+			return nil, 0, rerr
 		}
 		note, rerr := binReadString32(b, &pos)
 		if rerr != nil {
-			return nil, rerr
+			return nil, 0, rerr
 		}
 		n.Relations = append(n.Relations, Relation{Type: rt, Target: NodeID(target), Note: note})
 	}
 	if pos == len(b) {
-		return n, nil
+		return n, pos, nil
 	}
 	// primary_parent
 	ppPresent, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if ppPresent != 0 {
 		ppVal, err := binReadU64(b, &pos)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		pp := NodeID(ppVal)
 		n.PrimaryParent = &pp
 	}
 	if pos == len(b) {
-		return n, nil
+		return n, pos, nil
 	}
 	esByte, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	es, ok := binToEvidenceStatus[esByte]
 	if !ok {
-		return nil, fmt.Errorf("%w: unknown evidence status byte %d", ErrInvalidNode, esByte)
+		return nil, 0, fmt.Errorf("%w: unknown evidence status byte %d", ErrInvalidNode, esByte)
 	}
 	n.EvidenceStatus = es
 	ecByte, err := binReadU8(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	ec, ok := binToEvidenceCause[ecByte]
 	if !ok {
-		return nil, fmt.Errorf("%w: unknown evidence cause byte %d", ErrInvalidNode, ecByte)
+		return nil, 0, fmt.Errorf("%w: unknown evidence cause byte %d", ErrInvalidNode, ecByte)
 	}
 	n.EvidenceCause = ec
 	evidenceScope, err := binReadString32(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.EvidenceScope = evidenceScope
 	poisonedBy, err := binReadU64Slice(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.PoisonedBy = poisonedBy
 	revalidatedBy, err := binReadU64Slice(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.RevalidatedBy = revalidatedBy
 	poisonReason, err := binReadString32(b, &pos)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	n.PoisonReason = poisonReason
 
-	// Strict: reject trailing bytes
-	if pos != len(b) {
-		return nil, fmt.Errorf("%w: %d trailing bytes after node payload", ErrInvalidNode, len(b)-pos)
-	}
-
-	return n, nil
+	// Trailing-byte strictness is enforced by UnmarshalNodeBinary so that
+	// decodeNodeBinary can consume exactly one node from a longer buffer.
+	return n, pos, nil
 }
 
 // WriteBinHeader writes the nodes.bin file header.

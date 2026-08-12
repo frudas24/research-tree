@@ -432,3 +432,9 @@ func (s *Store) ListAllRelations() ([]struct {
 func (s *Store) RegenerateRelations() error {
 	return s.regenerateRelationsFromNodes()
 }
+
+// RegenerateBinIndex rebuilds nodes.idx by scanning nodes.bin sequentially.
+// Use it to recover a binary store whose index was lost or corrupted.
+func (s *Store) RegenerateBinIndex() error {
+	return s.regenerateBinIndex()
+}

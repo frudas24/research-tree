@@ -11,6 +11,35 @@ import (
 func newStorageCmd(opts *RootOptions) *cobra.Command {
 	cmd := &cobra.Command{Use: "storage", Short: "Storage operations"}
 	cmd.AddCommand(newStorageMigrateCmd(opts))
+	cmd.AddCommand(newStorageReindexCmd(opts))
+	return cmd
+}
+
+// newStorageReindexCmd reconstructs nodes.idx from nodes.bin after the
+// index was lost or corrupted.
+func newStorageReindexCmd(opts *RootOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reindex",
+		Short: "Rebuild the binary node index from nodes.bin",
+		Long: `Rebuild nodes.idx by scanning nodes.bin sequentially.
+
+Use this to recover a binary-mode store whose index was lost or corrupted.
+The store refuses to load (instead of silently appearing empty) while the
+index is missing, so reindex is the recovery path.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openStore(opts)
+			if err != nil {
+				return err
+			}
+			if store.StorageFormat() != retree.StorageBIN {
+				return fmt.Errorf("reindex only applies to bin storage format (current: %s)", store.StorageFormat())
+			}
+			if err := store.RegenerateBinIndex(); err != nil {
+				return err
+			}
+			return printMaybeJSON(cmd, opts.OutputJSON, map[string]any{"index": "rebuilt"}, "binary index rebuilt")
+		},
+	}
 	return cmd
 }
 
