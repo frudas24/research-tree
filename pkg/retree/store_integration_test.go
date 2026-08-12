@@ -2,6 +2,7 @@ package retree
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -546,6 +547,98 @@ func TestSnapshotsRetentionAndRestore(t *testing.T) {
 	mustNoErr(t, err)
 }
 
+// TestRestoreOldestSnapshotWithFullRetention verifies restoring the oldest
+// retained snapshot does not delete it when creating the pre-restore backup.
+func TestRestoreOldestSnapshotWithFullRetention(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	for i := 0; i < 4; i++ {
+		mustNoErr(t, s.CreateNode(&Node{Frontmatter: Frontmatter{Title: fmt.Sprintf("n%d", i)}}))
+	}
+	snaps, err := s.ListSnapshots()
+	mustNoErr(t, err)
+	if len(snaps) != 3 {
+		t.Fatalf("expected 3 retained snapshots, got %d", len(snaps))
+	}
+	oldest := snaps[len(snaps)-1]
+	mustNoErr(t, s.RestoreSnapshot(oldest.ID))
+	snaps, err = s.ListSnapshots()
+	mustNoErr(t, err)
+	if len(snaps) != 3 {
+		t.Fatalf("expected retention to stay at 3 after restore, got %d", len(snaps))
+	}
+}
+
+// TestSnapshotsDoNotArchiveActiveLock verifies newly created snapshots never
+// persist the transient lock file.
+func TestSnapshotsDoNotArchiveActiveLock(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	n := &Node{Frontmatter: Frontmatter{Title: "restore lock", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(n))
+	snaps, err := s.ListSnapshots()
+	mustNoErr(t, err)
+	if len(snaps) == 0 {
+		t.Fatal("expected snapshots")
+	}
+	snapPath := s.snapshotPath(snaps[len(snaps)-1].ID)
+	f, err := os.Open(snapPath)
+	mustNoErr(t, err)
+	defer func() { _ = f.Close() }()
+	gz, err := gzip.NewReader(f)
+	mustNoErr(t, err)
+	defer func() { _ = gz.Close() }()
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		mustNoErr(t, err)
+		if h.Name == "lock" {
+			t.Fatalf("snapshot %s should not archive the live lockfile", snapPath)
+		}
+	}
+}
+
+// TestRestoreIgnoresHistoricalLock verifies restore does not materialize a
+// historical lock file even if an old snapshot archive contains one.
+func TestRestoreIgnoresHistoricalLock(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	n := &Node{Frontmatter: Frontmatter{Title: "restore ignore lock", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(n))
+	snaps, err := s.ListSnapshots()
+	mustNoErr(t, err)
+	if len(snaps) == 0 {
+		t.Fatal("expected snapshots")
+	}
+	meta, err := s.snapshotMeta(snaps[len(snaps)-1].ID)
+	mustNoErr(t, err)
+
+	original, err := os.ReadFile(s.snapshotPath(meta.ID))
+	mustNoErr(t, err)
+	withLock := appendLockFileToSnapshot(t, original)
+	mustNoErr(t, os.WriteFile(s.snapshotPath(meta.ID), withLock, 0o644))
+	meta.Hash, err = fileSHA256(s.snapshotPath(meta.ID))
+	mustNoErr(t, err)
+	manifest, err := s.readManifest()
+	mustNoErr(t, err)
+	for i := range manifest.Snapshots {
+		if manifest.Snapshots[i].ID == meta.ID {
+			manifest.Snapshots[i].Hash = meta.Hash
+		}
+	}
+	mustNoErr(t, s.writeManifest(manifest))
+
+	mustNoErr(t, s.RestoreSnapshot(meta.ID))
+	if _, err := os.Stat(s.lockPath()); err != nil {
+		t.Fatalf("expected restore to keep a valid active lock, got %v", err)
+	}
+	info, err := s.readLockInfo()
+	mustNoErr(t, err)
+	if info.Operation != "restore_snapshot" {
+		t.Fatalf("expected live restore lock to survive, got %+v", info)
+	}
+}
+
 // TestMigrateJSONToBINAndBack verifies storage format migration roundtrip.
 func TestMigrateJSONToBINAndBack(t *testing.T) {
 	s := mustInit(t, StorageJSON)
@@ -643,6 +736,44 @@ func readLockTimestamp(path string) (time.Time, error) {
 		return time.Parse(time.RFC3339, ts)
 	}
 	return time.Time{}, fmt.Errorf("timestamp missing from lock file %s", path)
+}
+
+func appendLockFileToSnapshot(t *testing.T, snapshot []byte) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	gzw := gzip.NewWriter(&out)
+	tw := tar.NewWriter(gzw)
+
+	gr, err := gzip.NewReader(bytes.NewReader(snapshot))
+	mustNoErr(t, err)
+	defer func() { _ = gr.Close() }()
+	tr := tar.NewReader(gr)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		mustNoErr(t, err)
+		hdr := *h
+		mustNoErr(t, tw.WriteHeader(&hdr))
+		if h.Typeflag == tar.TypeReg {
+			_, err = io.Copy(tw, tr)
+			mustNoErr(t, err)
+		}
+	}
+
+	body := []byte("pid: 1\nhost: \"old\"\ntimestamp: \"2000-01-01T00:00:00Z\"\noperation: \"old\"\nowner: \"old\"\ntoken: \"old\"\n")
+	mustNoErr(t, tw.WriteHeader(&tar.Header{
+		Name:     "lock",
+		Mode:     0o644,
+		Size:     int64(len(body)),
+		Typeflag: tar.TypeReg,
+	}))
+	_, err = tw.Write(body)
+	mustNoErr(t, err)
+	mustNoErr(t, tw.Close())
+	mustNoErr(t, gzw.Close())
+	return out.Bytes()
 }
 
 // mustNoErr fails the test if err is non-nil.

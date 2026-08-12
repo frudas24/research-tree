@@ -22,6 +22,12 @@ type snapshotManifest struct {
 
 // createSnapshot creates a tar.gz snapshot and enforces retention policy.
 func (s *Store) createSnapshot(operation string) error {
+	return s.createSnapshotProtected(operation, nil)
+}
+
+// createSnapshotProtected creates a tar.gz snapshot while preventing retention
+// from deleting any explicitly protected snapshot IDs.
+func (s *Store) createSnapshotProtected(operation string, protect map[string]struct{}) error {
 	if err := os.MkdirAll(s.snapshotsDir(), 0o755); err != nil {
 		return err
 	}
@@ -42,12 +48,22 @@ func (s *Store) createSnapshot(operation string) error {
 		Operation: operation,
 		Hash:      h,
 	})
-	if len(manifest.Snapshots) > 3 {
-		toDelete := manifest.Snapshots[:len(manifest.Snapshots)-3]
-		for _, d := range toDelete {
-			_ = os.Remove(s.snapshotPath(d.ID))
+	for len(manifest.Snapshots) > 3 {
+		drop := -1
+		for i, snap := range manifest.Snapshots {
+			if protect != nil {
+				if _, keep := protect[snap.ID]; keep {
+					continue
+				}
+			}
+			drop = i
+			break
 		}
-		manifest.Snapshots = manifest.Snapshots[len(manifest.Snapshots)-3:]
+		if drop == -1 {
+			break
+		}
+		_ = os.Remove(s.snapshotPath(manifest.Snapshots[drop].ID))
+		manifest.Snapshots = append(manifest.Snapshots[:drop], manifest.Snapshots[drop+1:]...)
 	}
 	return s.writeManifest(manifest)
 }
@@ -75,7 +91,7 @@ func (s *Store) packSnapshot(dst string) error {
 		if rel == "." {
 			return nil
 		}
-		if strings.HasPrefix(rel, "snapshots") {
+		if strings.HasPrefix(rel, "snapshots") || rel == "lock" {
 			return nil
 		}
 		header, err := tar.FileInfoHeader(info, "")
@@ -156,15 +172,26 @@ func (s *Store) listSnapshots() ([]SnapshotMeta, error) {
 // restoreSnapshot restores a snapshot by ID, preserving history.
 func (s *Store) restoreSnapshot(snapshotID string) error {
 	return s.withLock("restore_snapshot", func() error {
-		if err := s.createSnapshot("pre_restore"); err != nil {
+		meta, err := s.snapshotMeta(snapshotID)
+		if err != nil {
 			return err
 		}
-		snap := s.snapshotPath(snapshotID)
+		if err := s.createSnapshotProtected("pre_restore", map[string]struct{}{meta.ID: {}}); err != nil {
+			return err
+		}
+		snap := s.snapshotPath(meta.ID)
 		if _, err := os.Stat(snap); err != nil {
 			if os.IsNotExist(err) {
 				return ErrNotFound
 			}
 			return err
+		}
+		hash, err := fileSHA256(snap)
+		if err != nil {
+			return err
+		}
+		if hash != meta.Hash {
+			return fmt.Errorf("%w: snapshot %s hash mismatch", ErrInvalidNode, meta.ID)
 		}
 		tmpDir, err := os.MkdirTemp("", "retree-restore-")
 		if err != nil {
@@ -174,12 +201,13 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 		if err := untarGz(snap, tmpDir); err != nil {
 			return err
 		}
+		_ = os.Remove(filepath.Join(tmpDir, "lock"))
 		entries, err := os.ReadDir(s.rootPath)
 		if err != nil {
 			return err
 		}
 		for _, e := range entries {
-			if e.Name() == "history" || e.Name() == "snapshots" {
+			if e.Name() == "history" || e.Name() == "snapshots" || e.Name() == "lock" {
 				continue
 			}
 			if err := os.RemoveAll(filepath.Join(s.rootPath, e.Name())); err != nil {
@@ -244,6 +272,20 @@ func untarGz(src, dst string) error {
 		}
 	}
 	return nil
+}
+
+// snapshotMeta resolves one snapshot ID from the persisted manifest.
+func (s *Store) snapshotMeta(snapshotID string) (SnapshotMeta, error) {
+	manifest, err := s.readManifest()
+	if err != nil {
+		return SnapshotMeta{}, err
+	}
+	for _, meta := range manifest.Snapshots {
+		if meta.ID == snapshotID {
+			return meta, nil
+		}
+	}
+	return SnapshotMeta{}, ErrNotFound
 }
 
 // isSafeArchivePath rejects absolute paths and any path containing a ".."

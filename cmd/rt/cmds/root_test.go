@@ -75,6 +75,52 @@ func TestCLIInitDefaultResearchRootFromEnv(t *testing.T) {
 	}
 }
 
+// TestCLIInitForceFailsIfEmergencyBackupCannotBeCreated verifies --force
+// aborts before deletion when the external emergency backup cannot be made.
+func TestCLIInitForceFailsIfEmergencyBackupCannotBeCreated(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	if _, err := runCLI(t, "--research-root", root, "init"); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sentinel.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	old := makeTempDir
+	makeTempDir = func(dir, pattern string) (string, error) { return "", os.ErrPermission }
+	defer func() { makeTempDir = old }()
+
+	if _, err := runCLI(t, "--research-root", root, "init", "--force"); err == nil {
+		t.Fatalf("expected force init to fail when backup dir creation fails")
+	}
+	if _, err := os.Stat(filepath.Join(root, "sentinel.txt")); err != nil {
+		t.Fatalf("expected root to survive failed force init backup: %v", err)
+	}
+}
+
+// TestCLIDestroyFailsIfSafetyBackupCannotBeCreated verifies destroy aborts
+// before deletion when the safety backup cannot be made.
+func TestCLIDestroyFailsIfSafetyBackupCannotBeCreated(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	if _, err := runCLI(t, "--research-root", root, "init"); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sentinel.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	old := makeTempDir
+	makeTempDir = func(dir, pattern string) (string, error) { return "", os.ErrPermission }
+	defer func() { makeTempDir = old }()
+
+	if _, err := runCLI(t, "--research-root", root, "destroy", "--yes"); err == nil {
+		t.Fatalf("expected destroy to fail when backup dir creation fails")
+	}
+	if _, err := os.Stat(filepath.Join(root, "sentinel.txt")); err != nil {
+		t.Fatalf("expected root to survive failed destroy backup: %v", err)
+	}
+}
+
 // TestCLINodeCreateShowEditDeleteTreeStatus exercises create, show, edit, delete, tree, and status commands.
 func TestCLINodeCreateShowEditDeleteTreeStatus(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")

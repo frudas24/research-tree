@@ -47,12 +47,14 @@ It creates a safety snapshot to /tmp before destroying as a last resort.
 				}
 			}
 
-			backupDir, err := os.MkdirTemp("", "rt-destroy-backup-*")
-			if err == nil {
-				if err := copyDirContents(root, backupDir); err == nil {
-					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "rt: safety backup saved to %s\n", backupDir)
-				}
+			backupDir, err := makeTempDir("", "rt-destroy-backup-*")
+			if err != nil {
+				return fmt.Errorf("destroy failed: cannot create safety backup dir: %w", err)
 			}
+			if err := copyDirContents(root, backupDir); err != nil {
+				return fmt.Errorf("destroy failed: cannot create safety backup: %w", err)
+			}
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "rt: safety backup saved to %s\n", backupDir)
 
 			if err := os.RemoveAll(root); err != nil {
 				return fmt.Errorf("destroy failed: %w", err)

@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var makeTempDir = os.MkdirTemp
+
 // newInitCmd constructs the "init" subcommand.
 func newInitCmd(opts *RootOptions) *cobra.Command {
 	var storageFormat string
@@ -78,12 +80,14 @@ func forceInit(rootPath string, format retree.StorageFormat) error {
 			}
 		}
 		// Create external emergency backup
-		backupDir, err := os.MkdirTemp("", "rt-init-backup-*")
-		if err == nil {
-			if err := copyDirContents(rootPath, backupDir); err == nil {
-				fmt.Fprintf(os.Stderr, "rt: emergency backup saved to %s\n", backupDir)
-			}
+		backupDir, err := makeTempDir("", "rt-init-backup-*")
+		if err != nil {
+			return fmt.Errorf("force init: cannot create emergency backup dir: %w", err)
 		}
+		if err := copyDirContents(rootPath, backupDir); err != nil {
+			return fmt.Errorf("force init: cannot create emergency backup: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "rt: emergency backup saved to %s\n", backupDir)
 		// Wipe
 		if err := os.RemoveAll(rootPath); err != nil {
 			return fmt.Errorf("force init: cannot remove existing root: %w", err)
