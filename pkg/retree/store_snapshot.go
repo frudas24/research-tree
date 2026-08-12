@@ -346,6 +346,8 @@ func (s *Store) snapshotMeta(snapshotID string) (SnapshotMeta, error) {
 	return SnapshotMeta{}, ErrNotFound
 }
 
+// readManifestStrict loads manifest.json when present and propagates any parse
+// error, while treating a missing manifest as an empty catalog.
 func (s *Store) readManifestStrict() (snapshotManifest, error) {
 	if _, err := os.Stat(s.manifestPath()); err == nil {
 		return s.readManifest()
@@ -394,6 +396,7 @@ func copyDir(src, dst string) error {
 	})
 }
 
+// copyIfExists recursively copies src into dst when src exists.
 func copyIfExists(src, dst string) error {
 	if _, err := os.Stat(src); err == nil {
 		return copyDir(src, dst)
@@ -404,6 +407,7 @@ func copyIfExists(src, dst string) error {
 	}
 }
 
+// writeLockFile materializes one lock payload at path for a staged restore.
 func writeLockFile(path string, info lockInfo) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

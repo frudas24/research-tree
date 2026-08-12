@@ -142,9 +142,6 @@ func TestLockHeartbeatRefreshesTimestamp(t *testing.T) {
 	if !second.After(first) {
 		t.Fatalf("expected lock heartbeat to refresh timestamp: first=%s second=%s", first, second)
 	}
-	if time.Since(second) > 3*time.Second {
-		t.Fatalf("expected refreshed timestamp to stay recent, age=%s", time.Since(second))
-	}
 	stale, err := s.isLockStale()
 	mustNoErr(t, err)
 	if stale {

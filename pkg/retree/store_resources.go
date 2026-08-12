@@ -373,6 +373,9 @@ func (s *Store) releaseNodeResourcesUnlocked(nodeID NodeID, action ResourceEvent
 	return nil
 }
 
+// bestEffortReleaseNodeResources clears leases after the primary node mutation
+// is durable, without surfacing a late sidecar write failure as if the node
+// update or delete itself had failed.
 func (s *Store) bestEffortReleaseNodeResources(nodeID NodeID, action ResourceEventAction) {
 	_ = s.releaseNodeResourcesUnlocked(nodeID, action)
 }

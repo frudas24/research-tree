@@ -350,6 +350,8 @@ func validateBinIndexEntry(fileSize int64, entry binIndexEntry) error {
 	return nil
 }
 
+// loadAndValidateJSONNode reads one JSON node file, applies defaults, validates
+// the payload, and optionally enforces that the filename matches the node ID.
 func loadAndValidateJSONNode(path string, checkFilenameID bool) (*Node, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -374,6 +376,8 @@ func loadAndValidateJSONNode(path string, checkFilenameID bool) (*Node, error) {
 	return n, nil
 }
 
+// normalizeAndValidateLoadedNode applies deterministic defaults to a decoded
+// node before validating it as if it had been created through the public API.
 func normalizeAndValidateLoadedNode(n *Node) error {
 	if n == nil {
 		return fmt.Errorf("%w: nil", ErrInvalidNode)
@@ -382,6 +386,8 @@ func normalizeAndValidateLoadedNode(n *Node) error {
 	return ValidateNode(n)
 }
 
+// validateGraphReferentialIntegrity rejects in-memory graphs that still contain
+// parent edges pointing at nodes absent from the loaded node set.
 func validateGraphReferentialIntegrity(g *Graph) error {
 	for childID, parents := range g.Parents {
 		for _, parentID := range parents {

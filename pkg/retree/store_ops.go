@@ -336,6 +336,9 @@ func (s *Store) generateWarningsForInvalidation(g *Graph, rootCause NodeID) erro
 	return nil
 }
 
+// bestEffortInvalidationWarnings appends descendant warnings after the
+// invalidation itself is durable, without turning a late sidecar failure into
+// a false rollback signal for the mutation.
 func (s *Store) bestEffortInvalidationWarnings(g *Graph, rootCause NodeID) {
 	_ = s.generateWarningsForInvalidation(g, rootCause)
 }
