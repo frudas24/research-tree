@@ -130,3 +130,19 @@ operationally unsafe.
 - **Reads:** lock-free
 - **Atomicity:** write to `.tmp` → `os.Rename` for all persistent state
 - **Snapshots:** automatic tar.gz after each mutation, rolling retention of 3
+
+## Storage trade-offs (intentional)
+
+- **JSON mode writes are delta-based.** Creating/updating a node rewrites
+  only that node's file; a forced delete also rewrites the orphaned
+  children. This avoids the old delete-all-then-rewrite crash window. Each
+  file write remains atomic (`.tmp` + rename).
+- **Binary mode rewrites the whole `nodes.bin` atomically** on every
+  mutation. This is deliberate: the file stays bounded, the single rename is
+  crash-safe, and the per-write cost is O(store size), which is acceptable
+  for a personal tool. `nodes.idx` is rebuildable from `nodes.bin` via
+  `rt storage reindex` if it is ever lost or corrupted.
+- **Snapshots run after every mutation** and pack the whole root, so the
+  cost of a mutation scales with the store size — embedded artifacts make
+  this heavier. The 3-snapshot rolling retention bounds disk usage. If a
+  store grows large, prefer binary mode and keep embedded artifacts lean.
