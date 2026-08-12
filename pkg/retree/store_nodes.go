@@ -231,18 +231,72 @@ func (s *Store) loadAllNodesBIN() ([]*Node, error) {
 	return out, nil
 }
 
-// getNode returns a deep copy of a single node by ID.
+// getNode returns a single node by ID without scanning the full store.
+// JSON mode reads the node's own file; binary mode uses the index + CRC.
 func (s *Store) getNode(id NodeID) (*Node, error) {
-	all, err := s.loadAllNodes()
+	if s.format == StorageJSON {
+		return s.getNodeJSON(id)
+	}
+	return s.getNodeBIN(id)
+}
+
+// getNodeJSON reads one node file directly.
+func (s *Store) getNodeJSON(id NodeID) (*Node, error) {
+	b, err := os.ReadFile(filepath.Join(s.nodesDir(), fmt.Sprintf("%04d.json", id)))
+	if err != nil {
+		if os.IsNotExist(err) {
+			// A missing file with a healthy nodes dir means "no such node";
+			// a missing nodes dir is a broken store, not a not-found node.
+			if _, dirErr := os.Stat(s.nodesDir()); os.IsNotExist(dirErr) {
+				return nil, fmt.Errorf("nodes directory missing: %w", err)
+			}
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	n, err := UnmarshalNodeJSON(b)
 	if err != nil {
 		return nil, err
 	}
-	for _, n := range all {
-		if n.ID == id {
-			return CloneNode(n), nil
-		}
+	if n.ID != id {
+		return nil, fmt.Errorf("%w: file %04d.json contains node %d", ErrInvalidNode, id, n.ID)
 	}
-	return nil, ErrNotFound
+	return n, nil
+}
+
+// getNodeBIN reads one node payload through the index, verifying its CRC.
+func (s *Store) getNodeBIN(id NodeID) (*Node, error) {
+	if err := s.ensureBinIndexPresent(); err != nil {
+		return nil, err
+	}
+	idx, err := s.readBinIndex()
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := idx[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	f, err := os.Open(s.nodesBinPath())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, entry.Length)
+	if _, err := f.ReadAt(buf, entry.Offset); err != nil {
+		return nil, err
+	}
+	if crc32.ChecksumIEEE(buf) != entry.Checksum {
+		return nil, fmt.Errorf("checksum mismatch for node %d", id)
+	}
+	n, err := UnmarshalNodeBinary(buf)
+	if err != nil {
+		return nil, err
+	}
+	if n.ID != id {
+		return nil, fmt.Errorf("%w: index entry %d decodes to node %d", ErrInvalidNode, id, n.ID)
+	}
+	return n, nil
 }
 
 // persistGraph writes the in-memory graph to disk in the configured format.
