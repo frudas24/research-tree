@@ -196,16 +196,8 @@ func (s *Store) auditResourceEvents(g *Graph, resources map[string]Resource) err
 		if !slices.Contains(validLeaseModes, event.Mode) && event.Mode != "" {
 			return fmt.Errorf("%w: resource event mode=%q", ErrInvalidResource, event.Mode)
 		}
-		if resources != nil {
-			if _, ok := resources[event.ResourceID]; !ok {
-				// Resource events are historical and must outlive the resource itself.
-			}
-		}
-		if g != nil {
-			if _, ok := g.Nodes[event.NodeID]; !ok {
-				// Resource events are historical and must outlive the node itself.
-			}
-		}
+		_ = resources
+		_ = g
 	}
 	return nil
 }

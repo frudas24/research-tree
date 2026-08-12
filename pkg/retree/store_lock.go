@@ -116,18 +116,6 @@ func (s *Store) tryAcquireLockState(operation string) (lockInfo, bool, error) {
 	return acquired, acquired.Token != "", nil
 }
 
-// tryReclaimStaleLock removes the current lock only when the stale owner is
-// unchanged between observation and takeover.
-func (s *Store) tryReclaimStaleLock() (bool, error) {
-	var reclaimed bool
-	err := s.withLockStateGuard(func() error {
-		var err error
-		reclaimed, err = s.tryReclaimStaleLockLocked()
-		return err
-	})
-	return reclaimed, err
-}
-
 // tryReclaimStaleLockLocked performs stale takeover while the guard file is
 // already held, so no concurrent heartbeat or release can modify the lockfile.
 func (s *Store) tryReclaimStaleLockLocked() (bool, error) {
@@ -269,13 +257,6 @@ func formatLockInfo(info lockInfo) string {
 		info.Owner,
 		info.Token,
 	)
-}
-
-// writeLockInfo atomically writes one lockfile payload.
-func (s *Store) writeLockInfo(info lockInfo) error {
-	return s.withLockStateGuard(func() error {
-		return s.writeLockInfoLocked(info)
-	})
 }
 
 // writeLockInfoLocked atomically writes one lockfile payload while the guard
