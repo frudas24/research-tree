@@ -97,11 +97,13 @@ func (s *Store) regenerateBinIndex() error {
 	if s.format != StorageBIN {
 		return fmt.Errorf("%w: binary index only exists in bin mode", ErrInvalidNode)
 	}
-	idx, err := s.scanBinIndex()
-	if err != nil {
-		return err
-	}
-	return s.writeBinIndex(idx)
+	return s.withLock("reindex_bin", func() error {
+		idx, err := s.scanBinIndex()
+		if err != nil {
+			return err
+		}
+		return s.writeBinIndex(idx)
+	})
 }
 
 // scanBinIndex sequentially decodes every node payload in nodes.bin,
@@ -117,8 +119,12 @@ func (s *Store) scanBinIndex() (map[NodeID]binIndexEntry, error) {
 	if len(data) < binHeaderSize {
 		return nil, fmt.Errorf("%w: truncated binary file (%d bytes)", ErrInvalidNode, len(data))
 	}
-	if _, err := ReadBinHeader(data[:binHeaderSize]); err != nil {
+	ver, err := ReadBinHeader(data[:binHeaderSize])
+	if err != nil {
 		return nil, err
+	}
+	if ver == binVersionV1 && len(data) > binHeaderSize {
+		return nil, fmt.Errorf("%w: cannot safely reindex legacy v1 nodes.bin without a trusted nodes.idx", ErrUnsupportedSchema)
 	}
 	pos := binHeaderSize
 	idx := make(map[NodeID]binIndexEntry)
@@ -127,6 +133,9 @@ func (s *Store) scanBinIndex() (map[NodeID]binIndexEntry, error) {
 		n, consumed, err := decodeNodeBinary(data[start:])
 		if err != nil {
 			return nil, fmt.Errorf("regenerate bin index: node at offset %d: %w", start, err)
+		}
+		if _, exists := idx[n.ID]; exists {
+			return nil, fmt.Errorf("%w: duplicate node id %d in nodes.bin during reindex", ErrDuplicateID, n.ID)
 		}
 		idx[n.ID] = binIndexEntry{
 			Offset:   int64(start),

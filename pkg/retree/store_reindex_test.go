@@ -1,6 +1,7 @@
 package retree
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,5 +156,76 @@ func TestRegenerateBinIndexRejectsJSONMode(t *testing.T) {
 		t.Fatalf("reindex must fail in json mode")
 	} else if !strings.Contains(err.Error(), "bin mode") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestRegenerateBinIndexRejectsDuplicateIDs verifies recovery fails loudly
+// when nodes.bin contains two records with the same node ID.
+func TestRegenerateBinIndexRejectsDuplicateIDs(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageBIN)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	first := &Node{Frontmatter: Frontmatter{Title: "A", Status: StatusActive}}
+	if err := s.CreateNode(first); err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	second := CloneNode(first)
+	second.Title = "duplicate-id"
+	payload, err := MarshalNodeBinary(second)
+	if err != nil {
+		t.Fatalf("marshal duplicate: %v", err)
+	}
+	f, err := os.OpenFile(s.nodesBinPath(), os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatalf("open bin for append: %v", err)
+	}
+	if _, err := f.Write(payload); err != nil {
+		_ = f.Close()
+		t.Fatalf("append duplicate payload: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close bin after append: %v", err)
+	}
+	if err := os.Remove(s.nodesIdxPath()); err != nil {
+		t.Fatalf("remove index: %v", err)
+	}
+	if err := s.RegenerateBinIndex(); err == nil {
+		t.Fatalf("expected duplicate IDs to fail reindex")
+	} else if !strings.Contains(err.Error(), "duplicate node id") {
+		t.Fatalf("expected duplicate ID error, got %v", err)
+	}
+}
+
+// TestRegenerateBinIndexRejectsLegacyV1Store verifies reindex refuses legacy
+// v1 binary payloads because the old concatenated layout is not delimited
+// safely enough for forensic index reconstruction.
+func TestRegenerateBinIndexRejectsLegacyV1Store(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageBIN)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	n := &Node{Frontmatter: Frontmatter{Title: "legacy", Status: StatusActive}}
+	payload, err := marshalNodeBinaryLegacyV1(n)
+	if err != nil {
+		t.Fatalf("marshal legacy v1: %v", err)
+	}
+	var buf bytes.Buffer
+	buf.WriteString(binMagic)
+	buf.WriteByte(binVersionV1)
+	buf.Write([]byte{0, 0, 0})
+	buf.Write(payload)
+	if err := os.WriteFile(s.nodesBinPath(), buf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write legacy nodes.bin: %v", err)
+	}
+	if err := os.Remove(s.nodesIdxPath()); err != nil {
+		t.Fatalf("remove index: %v", err)
+	}
+	if err := s.RegenerateBinIndex(); err == nil {
+		t.Fatalf("expected legacy v1 reindex to be rejected")
+	} else if !strings.Contains(err.Error(), "legacy v1") {
+		t.Fatalf("expected legacy v1 rejection, got %v", err)
 	}
 }

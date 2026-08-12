@@ -25,7 +25,12 @@ func newStorageReindexCmd(opts *RootOptions) *cobra.Command {
 
 Use this to recover a binary-mode store whose index was lost or corrupted.
 The store refuses to load (instead of silently appearing empty) while the
-index is missing, so reindex is the recovery path.`,
+index is missing, so reindex is the recovery path.
+
+Reindex only supports the current v2 binary payload layout. Legacy v1
+stores remain readable with an intact index, but rebuilding their index is
+intentionally rejected because the old concatenated payloads are not
+delimited safely enough for forensic recovery.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := openStore(opts)
 			if err != nil {

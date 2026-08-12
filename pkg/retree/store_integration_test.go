@@ -575,6 +575,7 @@ func mustInit(t *testing.T, format StorageFormat) *Store {
 	return s
 }
 
+// readLockTimestamp parses the current RFC3339 timestamp from a lock file.
 func readLockTimestamp(path string) (time.Time, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
