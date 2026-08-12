@@ -47,11 +47,13 @@ func (s *Store) createNodeWithFeature(n *Node, featureSpec string, role FeatureN
 		if err := linkNodeInFeature(target, n.ID, role); err != nil {
 			return err
 		}
-
 		if err := s.writeNextID(next + 1); err != nil {
 			return err
 		}
 		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); err != nil {
+			if rollbackErr := s.rollbackCreatedPrimaryState(next, n.ID); rollbackErr != nil {
+				return fmt.Errorf("persist node graph: %w; rollback node failed: %v", err, rollbackErr)
+			}
 			return err
 		}
 		if err := s.saveFeaturePayload(payload); err != nil {
@@ -66,13 +68,39 @@ func (s *Store) createNodeWithFeature(n *Node, featureSpec string, role FeatureN
 	})
 }
 
+// rollbackCreatedPrimaryState removes the just-created node from the primary
+// node store and restores next_id without depending on sidecar regeneration.
+func (s *Store) rollbackCreatedPrimaryState(previousNext NodeID, createdID NodeID) error {
+	nodes, err := s.loadAllNodes()
+	if err != nil {
+		return err
+	}
+	filtered := make([]*Node, 0, len(nodes))
+	for _, node := range nodes {
+		if node.ID == createdID {
+			continue
+		}
+		filtered = append(filtered, node)
+	}
+	if s.format == StorageJSON {
+		if err := s.writeAllNodesJSONDelta(filtered, nil, []NodeID{createdID}); err != nil {
+			return err
+		}
+	} else {
+		if err := s.writeAllNodesBIN(filtered); err != nil {
+			return err
+		}
+	}
+	return s.writeNextID(previousNext)
+}
+
 // rollbackCreatedNode restores the pre-create next_id and removes the just-created node.
 func (s *Store) rollbackCreatedNode(previousNext NodeID, createdID NodeID) error {
 	g, err := s.loadGraph()
 	if err != nil {
 		return err
 	}
-	if err := g.RemoveNode(createdID, false); err != nil {
+	if err := g.RemoveNode(createdID, false); err != nil && err != ErrNotFound {
 		return err
 	}
 	if err := s.persistGraphDelta(g, nil, []NodeID{createdID}); err != nil {
