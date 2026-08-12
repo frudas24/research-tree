@@ -26,6 +26,9 @@ func (s *Store) nextIDPath() string { return filepath.Join(s.rootPath, "next_id"
 // lockPath returns the path to the lockfile.
 func (s *Store) lockPath() string { return filepath.Join(s.rootPath, "lock") }
 
+// lockGuardPath returns the path to the guard file used to serialize lock-state transitions.
+func (s *Store) lockGuardPath() string { return filepath.Join(s.rootPath, ".lock.guard") }
+
 // alertsPath returns the path to alerts.jsonl.
 func (s *Store) alertsPath() string { return filepath.Join(s.rootPath, "alerts.jsonl") }
 

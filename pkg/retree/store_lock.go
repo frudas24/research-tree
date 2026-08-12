@@ -44,28 +44,12 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 	local.Lock()
 	deadline := time.Now().Add(lockTimeout)
 	for {
-		fd, err := os.OpenFile(s.lockPath(), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if err == nil {
-			token, terr := newLockToken()
-			if terr != nil {
-				_ = fd.Close()
-				_ = os.Remove(s.lockPath())
-				local.Unlock()
-				return nil, terr
-			}
-			info := lockInfo{PID: os.Getpid(), Host: "local", Timestamp: time.Now().UTC(), Operation: operation, Owner: "local", Token: token}
-			_, werr := fd.WriteString(formatLockInfo(info))
-			cerr := fd.Close()
-			if werr != nil {
-				_ = os.Remove(s.lockPath())
-				local.Unlock()
-				return nil, werr
-			}
-			if cerr != nil {
-				_ = os.Remove(s.lockPath())
-				local.Unlock()
-				return nil, cerr
-			}
+		info, acquired, err := s.tryAcquireLockState(operation)
+		if err != nil {
+			local.Unlock()
+			return nil, err
+		}
+		if acquired {
 			stop := make(chan struct{})
 			done := make(chan struct{})
 			var once sync.Once
@@ -79,18 +63,6 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 				})
 			}, nil
 		}
-		if !os.IsExist(err) {
-			local.Unlock()
-			return nil, err
-		}
-		reclaimed, serr := s.tryReclaimStaleLock()
-		if serr == nil && reclaimed {
-			continue
-		}
-		if serr != nil && !os.IsNotExist(serr) {
-			local.Unlock()
-			return nil, serr
-		}
 		if time.Now().After(deadline) {
 			local.Unlock()
 			return nil, fmt.Errorf("lock timeout for op=%s", operation)
@@ -99,9 +71,66 @@ func (s *Store) acquireLock(operation string) (func(), error) {
 	}
 }
 
+// tryAcquireLockState serializes one acquire/reclaim attempt under the guard
+// file and either returns a freshly acquired owner token or reports contention.
+func (s *Store) tryAcquireLockState(operation string) (lockInfo, bool, error) {
+	var acquired lockInfo
+	err := s.withLockStateGuard(func() error {
+		fd, err := os.OpenFile(s.lockPath(), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			token, terr := newLockToken()
+			if terr != nil {
+				_ = fd.Close()
+				_ = os.Remove(s.lockPath())
+				return terr
+			}
+			acquired = lockInfo{PID: os.Getpid(), Host: "local", Timestamp: time.Now().UTC(), Operation: operation, Owner: "local", Token: token}
+			_, werr := fd.WriteString(formatLockInfo(acquired))
+			cerr := fd.Close()
+			if werr != nil {
+				_ = os.Remove(s.lockPath())
+				return werr
+			}
+			if cerr != nil {
+				_ = os.Remove(s.lockPath())
+				return cerr
+			}
+			return nil
+		}
+		if !os.IsExist(err) {
+			return err
+		}
+		reclaimed, serr := s.tryReclaimStaleLockLocked()
+		if serr != nil {
+			return serr
+		}
+		if reclaimed {
+			return nil
+		}
+		acquired = lockInfo{}
+		return nil
+	})
+	if err != nil {
+		return lockInfo{}, false, err
+	}
+	return acquired, acquired.Token != "", nil
+}
+
 // tryReclaimStaleLock removes the current lock only when the stale owner is
 // unchanged between observation and takeover.
 func (s *Store) tryReclaimStaleLock() (bool, error) {
+	var reclaimed bool
+	err := s.withLockStateGuard(func() error {
+		var err error
+		reclaimed, err = s.tryReclaimStaleLockLocked()
+		return err
+	})
+	return reclaimed, err
+}
+
+// tryReclaimStaleLockLocked performs stale takeover while the guard file is
+// already held, so no concurrent heartbeat or release can modify the lockfile.
+func (s *Store) tryReclaimStaleLockLocked() (bool, error) {
 	info, err := s.readLockInfo()
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -177,43 +206,56 @@ func (s *Store) readLockInfo() (lockInfo, error) {
 
 // writeLockIfOwned refreshes the lockfile only if the token still matches the current owner.
 func (s *Store) writeLockIfOwned(info lockInfo) (bool, error) {
-	current, err := s.readLockInfo()
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
+	var owned bool
+	err := s.withLockStateGuard(func() error {
+		current, err := s.readLockInfo()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
 		}
-		return false, err
-	}
-	if current.Token == "" || current.Token != info.Token {
-		return false, nil
-	}
-	path := s.lockPath()
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(formatLockInfo(info)), 0o644); err != nil {
-		return false, err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return false, err
-	}
-	return true, nil
+		if current.Token == "" || current.Token != info.Token {
+			return nil
+		}
+		owned = true
+		return s.writeLockInfoLocked(info)
+	})
+	return owned, err
 }
 
 // markLockReleasedIfOwned marks the lock stale immediately, but only if the
 // token still belongs to this owner. The next waiter can reclaim it safely.
 func (s *Store) markLockReleasedIfOwned(token string) error {
-	current, err := s.readLockInfo()
-	if err != nil {
-		if os.IsNotExist(err) {
+	return s.withLockStateGuard(func() error {
+		current, err := s.readLockInfo()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if current.Token == "" || current.Token != token {
 			return nil
 		}
+		current.Timestamp = time.Unix(0, 0).UTC()
+		return s.writeLockInfoLocked(current)
+	})
+}
+
+// withLockStateGuard serializes lockfile state transitions under an OS-level
+// file lock so heartbeat, release, and stale takeover cannot race each other.
+func (s *Store) withLockStateGuard(fn func() error) error {
+	guard, err := os.OpenFile(s.lockGuardPath(), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
 		return err
 	}
-	if current.Token == "" || current.Token != token {
-		return nil
+	defer func() { _ = guard.Close() }()
+	if err := lockFileExclusive(guard); err != nil {
+		return err
 	}
-	current.Timestamp = time.Unix(0, 0).UTC()
-	return s.writeLockInfo(current)
+	defer func() { _ = unlockFile(guard) }()
+	return fn()
 }
 
 // formatLockInfo serializes lock metadata to the on-disk lockfile format.
@@ -231,6 +273,14 @@ func formatLockInfo(info lockInfo) string {
 
 // writeLockInfo atomically writes one lockfile payload.
 func (s *Store) writeLockInfo(info lockInfo) error {
+	return s.withLockStateGuard(func() error {
+		return s.writeLockInfoLocked(info)
+	})
+}
+
+// writeLockInfoLocked atomically writes one lockfile payload while the guard
+// file is already held by the caller.
+func (s *Store) writeLockInfoLocked(info lockInfo) error {
 	path := s.lockPath()
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(formatLockInfo(info)), 0o644); err != nil {
