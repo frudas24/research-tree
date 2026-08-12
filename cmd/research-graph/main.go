@@ -8,6 +8,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -22,6 +23,7 @@ import (
 
 func main() {
 	researchRoot := flag.String("research-root", defaultResearchRoot(), "Path to .research directory")
+	host := flag.String("host", "127.0.0.1", "Bind address (default localhost only)")
 	port := flag.Int("port", 8080, "HTTP port")
 	flag.Parse()
 
@@ -30,8 +32,18 @@ func main() {
 		log.Fatalf("open research root: %v", err)
 	}
 
-	uiDir := resolveUIDir()
+	mux := newMux(store)
 
+	addr := fmt.Sprintf("%s:%d", *host, *port)
+	log.Printf("research-graph serving %s on http://%s", *researchRoot, addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatalf("serve: %v", err)
+	}
+}
+
+// newMux wires the HTTP handlers. Extraction keeps the routes testable.
+func newMux(store *retree.Store) *http.ServeMux {
+	uiDir := resolveUIDir()
 	mux := http.NewServeMux()
 
 	// Static UI files
@@ -44,7 +56,11 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		payload := buildGraphPayload(store)
+		payload, err := buildGraphPayload(store)
+		if err != nil {
+			http.Error(w, "graph build failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if err := json.NewEncoder(w).Encode(payload); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -64,11 +80,19 @@ func main() {
 
 		n, err := store.GetNode(retree.NodeID(id))
 		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
+			if errors.Is(err, retree.ErrNotFound) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "node lookup failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		detail := buildNodeDetail(store, n)
+		detail, err := buildNodeDetail(store, n)
+		if err != nil {
+			http.Error(w, "detail build failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if err := json.NewEncoder(w).Encode(detail); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -83,11 +107,7 @@ func main() {
 		http.NotFound(w, r)
 	})
 
-	addr := fmt.Sprintf(":%d", *port)
-	log.Printf("research-graph serving %s on http://localhost%s", *researchRoot, addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("serve: %v", err)
-	}
+	return mux
 }
 
 // ── DTOs ──
@@ -177,8 +197,11 @@ type GraphPayload struct {
 
 // ── Builders ──
 
-func buildGraphPayload(store *retree.Store) GraphPayload {
-	nodes, _ := store.QueryNodes(retree.Filter{SortBy: "id", Order: "asc"})
+func buildGraphPayload(store *retree.Store) (GraphPayload, error) {
+	nodes, err := store.QueryNodes(retree.Filter{SortBy: "id", Order: "asc"})
+	if err != nil {
+		return GraphPayload{}, err
+	}
 
 	childrenByParent := map[retree.NodeID][]retree.NodeID{}
 	for _, n := range nodes {
@@ -196,14 +219,15 @@ func buildGraphPayload(store *retree.Store) GraphPayload {
 		children := childrenByParent[n.ID]
 		pending := countPending(nodes, children)
 
-		hotness := pending * 5
+		ageDays := 0
 		if !n.Created.IsZero() {
-			ageDays := int(now.Sub(n.Created).Hours() / 24)
-			hotness += ageDays
+			ageDays = int(now.Sub(n.Created).Hours() / 24)
 		}
+		inconclusiveBonus := 0
 		if n.Outcome == retree.OutcomeInconclusive {
-			hotness += 5
+			inconclusiveBonus = retree.HotspotInconclusiveOutcomeBonus
 		}
+		hotness := retree.ComputeHotness(pending, ageDays, inconclusiveBonus)
 
 		gn := GraphNode{
 			ID:              uint64(n.ID),
@@ -244,12 +268,15 @@ func buildGraphPayload(store *retree.Store) GraphPayload {
 		Edges:     graphEdges,
 		Relations: graphRelations,
 		Total:     len(nodes),
-	}
+	}, nil
 }
 
-func buildNodeDetail(store *retree.Store, n *retree.Node) NodeDetail {
+func buildNodeDetail(store *retree.Store, n *retree.Node) (NodeDetail, error) {
 	// Build children list
-	nodes, _ := store.QueryNodes(retree.Filter{SortBy: "id", Order: "asc"})
+	nodes, err := store.QueryNodes(retree.Filter{SortBy: "id", Order: "asc"})
+	if err != nil {
+		return NodeDetail{}, err
+	}
 	childrenByParent := map[retree.NodeID][]retree.NodeID{}
 	statusByID := map[retree.NodeID]retree.NodeStatus{}
 	for _, node := range nodes {
@@ -267,16 +294,21 @@ func buildNodeDetail(store *retree.Store, n *retree.Node) NodeDetail {
 	}
 
 	now := time.Now().UTC()
-	hotness := pending * 5
+	ageDays := 0
 	if !n.Created.IsZero() {
-		hotness += int(now.Sub(n.Created).Hours() / 24)
+		ageDays = int(now.Sub(n.Created).Hours() / 24)
 	}
+	inconclusiveBonus := 0
 	if n.Outcome == retree.OutcomeInconclusive {
-		hotness += 5
+		inconclusiveBonus = retree.HotspotInconclusiveOutcomeBonus
 	}
+	hotness := retree.ComputeHotness(pending, ageDays, inconclusiveBonus)
 
 	// Relations pointing TO this node
-	allNodes, _ := store.QueryNodes(retree.Filter{})
+	allNodes, err := store.QueryNodes(retree.Filter{})
+	if err != nil {
+		return NodeDetail{}, err
+	}
 	var relationOf []RelationDTO
 	for _, other := range allNodes {
 		for _, rel := range other.Relations {
@@ -342,7 +374,7 @@ func buildNodeDetail(store *retree.Store, n *retree.Node) NodeDetail {
 	}
 	detail.RelationOf = relationOf
 
-	return detail
+	return detail, nil
 }
 
 // ── Helpers ──

@@ -262,6 +262,13 @@ func latestRunValidity(n *Node) string {
 	return "invalid"
 }
 
+// ComputeHotness is the single source of truth for the hotspot formula.
+// Both the status dashboard and the graph server must use it so the score
+// never drifts between consumers.
+func ComputeHotness(pendingChildren, ageDays, inconclusiveBonus int) int {
+	return (pendingChildren * HotspotPendingChildWeight) + ageDays + inconclusiveBonus
+}
+
 // summarizeHotspot calculates a deterministic hotspot score per node.
 func summarizeHotspot(n *Node, pendingCount, totalChildren int, now time.Time) HotspotSummary {
 	ageDays := ageInDays(n.Created, now)
@@ -270,7 +277,7 @@ func summarizeHotspot(n *Node, pendingCount, totalChildren int, now time.Time) H
 	if outcome == OutcomeInconclusive {
 		inconclusiveBonus = HotspotInconclusiveOutcomeBonus
 	}
-	hotness := (pendingCount * HotspotPendingChildWeight) + ageDays + inconclusiveBonus
+	hotness := ComputeHotness(pendingCount, ageDays, inconclusiveBonus)
 	return HotspotSummary{
 		ID:                n.ID,
 		Title:             n.Title,
