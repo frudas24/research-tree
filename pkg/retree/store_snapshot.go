@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -41,6 +42,13 @@ func (s *Store) bestEffortSnapshot(operation string) {
 // so a present-but-corrupt catalog fails early instead of being silently
 // replaced or only surfacing as a late post-commit snapshot error.
 func (s *Store) ensureSnapshotCatalogHealthy() error {
+	if info, err := os.Stat(s.snapshotsDir()); err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("snapshots path %q is not a directory", s.snapshotsDir())
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	_, err := s.readManifestStrict()
 	return err
 }
@@ -117,7 +125,7 @@ func (s *Store) packSnapshot(dst string) error {
 		if rel == "." {
 			return nil
 		}
-		if strings.HasPrefix(rel, "snapshots") || rel == "lock" {
+		if strings.HasPrefix(rel, "snapshots") || rel == "lock" || rel == ".lock.guard" {
 			return nil
 		}
 		header, err := tar.FileInfoHeader(info, "")
@@ -388,10 +396,17 @@ func (s *Store) readManifestStrict() (snapshotManifest, error) {
 // isSafeArchivePath rejects absolute paths and any path containing a ".."
 // segment, preventing archive entries from escaping the extraction root.
 func isSafeArchivePath(name string) bool {
-	if filepath.IsAbs(name) {
+	slashName := filepath.ToSlash(name)
+	if slashName == "" {
 		return false
 	}
-	for _, part := range strings.Split(filepath.ToSlash(name), "/") {
+	if path.IsAbs(slashName) || filepath.IsAbs(name) {
+		return false
+	}
+	if len(slashName) >= 3 && slashName[1] == ':' && slashName[2] == '/' {
+		return false
+	}
+	for _, part := range strings.Split(slashName, "/") {
 		if part == ".." {
 			return false
 		}

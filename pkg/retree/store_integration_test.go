@@ -1074,24 +1074,26 @@ func TestSnapshotPreservesHistory(t *testing.T) {
 	// Verify snapshot contains history nodes
 	snapPath := s.snapshotPath(snaps[0].ID)
 	hasHistory := false
-	f, err := os.Open(snapPath)
-	mustNoErr(t, err)
-	defer func() { _ = f.Close() }()
-	gz, err := gzip.NewReader(f)
-	mustNoErr(t, err)
-	defer func() { _ = gz.Close() }()
-	tr := tar.NewReader(gz)
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
+	func() {
+		f, err := os.Open(snapPath)
 		mustNoErr(t, err)
-		if strings.Contains(h.Name, "history/nodes") {
-			hasHistory = true
-			break
+		defer func() { _ = f.Close() }()
+		gz, err := gzip.NewReader(f)
+		mustNoErr(t, err)
+		defer func() { _ = gz.Close() }()
+		tr := tar.NewReader(gz)
+		for {
+			h, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			mustNoErr(t, err)
+			if strings.Contains(h.Name, "history/nodes") {
+				hasHistory = true
+				break
+			}
 		}
-	}
+	}()
 	if !hasHistory {
 		t.Fatal("snapshot does not contain history/nodes")
 	}
