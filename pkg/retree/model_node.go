@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+var validNodeKinds = []NodeKind{
+	NodeKindWork,
+	NodeKindUmbrella,
+}
+
 var validNodeStatuses = []NodeStatus{
 	StatusActive,
 	StatusDone,
@@ -82,6 +87,9 @@ func ApplyNodeDefaults(n *Node, now time.Time) {
 	if n.SchemaVersion == 0 {
 		n.SchemaVersion = CurrentSchemaVersion
 	}
+	if n.Kind == "" {
+		n.Kind = NodeKindWork
+	}
 	if n.Status == "" {
 		n.Status = StatusActive
 	}
@@ -116,6 +124,20 @@ func normalizeRunRecord(r *RunRecord) {
 	}
 }
 
+// effectiveKind resolves the semantic kind of a node, treating the empty
+// (legacy) value as work so consumers never special-case "".
+func effectiveKind(n *Node) NodeKind {
+	if n == nil || n.Kind == "" {
+		return NodeKindWork
+	}
+	return n.Kind
+}
+
+// IsUmbrella reports whether the node is an umbrella-kind node.
+func (n *Node) IsUmbrella() bool {
+	return effectiveKind(n) == NodeKindUmbrella
+}
+
 // ValidateNode validates a normalized node payload.
 func ValidateNode(n *Node) error {
 	if n == nil {
@@ -126,6 +148,12 @@ func ValidateNode(n *Node) error {
 	}
 	if n.SchemaVersion != CurrentSchemaVersion {
 		return fmt.Errorf("%w: got=%d want=%d", ErrUnsupportedSchema, n.SchemaVersion, CurrentSchemaVersion)
+	}
+	// An empty kind is tolerated as the pre-default state (legacy payloads);
+	// any non-empty kind must be canonical. effectiveKind resolves both to the
+	// same value for consumers.
+	if n.Kind != "" && !slices.Contains(validNodeKinds, n.Kind) {
+		return fmt.Errorf("%w: kind=%q", ErrInvalidNode, n.Kind)
 	}
 	if !slices.Contains(validNodeStatuses, n.Status) {
 		return fmt.Errorf("%w: %q", ErrInvalidStatus, n.Status)

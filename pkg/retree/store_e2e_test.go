@@ -890,6 +890,122 @@ func TestE2ESimulator(t *testing.T) {
 		return validateStoreInvariants(s)
 	}))
 
+	// --- Scenario 17: Umbrella nesting, multi-parent, and kind separation ---
+	scenarios = append(scenarios, runScenario("S17: umbrella nesting + multi-parent", func() error {
+		s, err := Open(researchRoot)
+		if err != nil {
+			return fmt.Errorf("open: %w", err)
+		}
+
+		root := &Node{Frontmatter: Frontmatter{Title: "umbrella root", Kind: NodeKindUmbrella, Status: StatusActive}}
+		if err := s.CreateNode(root); err != nil {
+			return fmt.Errorf("create root umbrella: %w", err)
+		}
+		nested := &Node{Frontmatter: Frontmatter{Title: "nested umbrella", Kind: NodeKindUmbrella, Status: StatusActive, Parents: []NodeID{root.ID}}}
+		if err := s.CreateNode(nested); err != nil {
+			return fmt.Errorf("create nested umbrella: %w", err)
+		}
+		// Shared work node with two umbrella parents: counted once per umbrella.
+		shared := &Node{Frontmatter: Frontmatter{Title: "shared work", Status: StatusActive, Parents: []NodeID{root.ID, nested.ID}}}
+		if err := s.CreateNode(shared); err != nil {
+			return fmt.Errorf("create shared work: %w", err)
+		}
+
+		// Derived progress: distinct children per umbrella.
+		progRoot, err := s.DerivedProgress(root.ID)
+		if err != nil {
+			return fmt.Errorf("root progress: %w", err)
+		}
+		if progRoot.DirectChildren != 2 || progRoot.WorkChildren != 1 || progRoot.UmbrellaChildren != 1 {
+			return fmt.Errorf("root progress = %+v, want 2 direct (1 work, 1 umbrella)", progRoot)
+		}
+		progNested, err := s.DerivedProgress(nested.ID)
+		if err != nil {
+			return fmt.Errorf("nested progress: %w", err)
+		}
+		if progNested.DirectChildren != 1 || progNested.WorkChildren != 1 {
+			return fmt.Errorf("nested progress = %+v, want 1 direct work child", progNested)
+		}
+		if len(progRoot.ActionableLeaves) != 1 || progRoot.ActionableLeaves[0] != shared.ID {
+			return fmt.Errorf("root actionable leaves = %v, want [%d]", progRoot.ActionableLeaves, shared.ID)
+		}
+
+		// Kind filtering: umbrellas and work separate.
+		umbrellas, err := s.QueryNodes(Filter{Kind: NodeKindUmbrella})
+		if err != nil {
+			return fmt.Errorf("query umbrellas: %w", err)
+		}
+		if len(umbrellas) != 2 {
+			return fmt.Errorf("want 2 umbrellas (root+nested), got %d", len(umbrellas))
+		}
+		works, err := s.QueryNodes(Filter{Kind: NodeKindWork})
+		if err != nil {
+			return fmt.Errorf("query work: %w", err)
+		}
+		if len(works) < 1 {
+			return fmt.Errorf("want work nodes, got %d", len(works))
+		}
+		for _, u := range umbrellas {
+			for _, w := range works {
+				if u.ID == w.ID {
+					return fmt.Errorf("kind filter overlap at %d", u.ID)
+				}
+			}
+		}
+
+		// Status separation: legacy active keeps all nodes, but work hotspots and
+		// work-only counts still exclude umbrellas.
+		all, err := s.QueryNodes(Filter{})
+		if err != nil {
+			return fmt.Errorf("query all: %w", err)
+		}
+		sum := BuildStatusSummary(all, nil, StatusBuildOptions{Now: nowUTC()})
+		if len(sum.Active) < 2 {
+			return fmt.Errorf("legacy active unexpectedly dropped nodes: %+v", sum.Active)
+		}
+		if sum.UmbrellaStatusCounts[StatusActive] == 0 {
+			return fmt.Errorf("umbrella status counts missing")
+		}
+		for _, h := range sum.Hotspots {
+			if h.ID == root.ID || h.ID == nested.ID {
+				return fmt.Errorf("umbrella %d leaked into work hotspots", h.ID)
+			}
+		}
+		foundPressure := false
+		for _, p := range sum.UmbrellaPressure {
+			if p.ID == root.ID || p.ID == nested.ID {
+				foundPressure = true
+			}
+		}
+		if !foundPressure {
+			return fmt.Errorf("umbrella pressure missing root/nested")
+		}
+
+		// Adversarial: unknown kind rejected; umbrella done requires outcome.
+		bad := &Node{Frontmatter: Frontmatter{Title: "bad", Kind: "project", Status: StatusActive}}
+		if err := s.CreateNode(bad); err == nil {
+			return fmt.Errorf("unknown kind must be rejected")
+		}
+		noOutcome := &Node{Frontmatter: Frontmatter{Title: "no outcome", Kind: NodeKindUmbrella, Status: StatusDone}}
+		if err := s.CreateNode(noOutcome); err == nil {
+			return fmt.Errorf("done umbrella without outcome must be rejected")
+		}
+
+		// Close the root umbrella properly with a terminal outcome.
+		closed := &Node{Frontmatter: Frontmatter{ID: root.ID, Title: root.Title, Kind: NodeKindUmbrella, Status: StatusDone, Outcome: OutcomeSuccess, ClaimStatus: ClaimProvisional, SchemaVersion: CurrentSchemaVersion}}
+		if err := s.UpdateNode(closed); err != nil {
+			return fmt.Errorf("close umbrella: %w", err)
+		}
+		got, err := s.GetNode(root.ID)
+		if err != nil {
+			return fmt.Errorf("get closed umbrella: %w", err)
+		}
+		if got.Status != StatusDone || got.Outcome != OutcomeSuccess {
+			return fmt.Errorf("umbrella close state = %s/%s", got.Status, got.Outcome)
+		}
+		return nil
+	}))
+
 	// Assemble report
 	report.Scenarios = scenarios
 	passed := 0

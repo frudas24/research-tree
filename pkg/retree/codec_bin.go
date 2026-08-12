@@ -20,6 +20,14 @@ const (
 // --- enum encodings (deterministic, versioned) ---
 
 var (
+	kindToBin = map[NodeKind]uint8{
+		NodeKindWork:     0,
+		NodeKindUmbrella: 1,
+	}
+	binToKind = map[uint8]NodeKind{
+		0: NodeKindWork,
+		1: NodeKindUmbrella,
+	}
 	statusToBin = map[NodeStatus]uint8{
 		StatusActive: 0,
 		StatusDone:   1,
@@ -168,7 +176,10 @@ var (
 	}
 )
 
-const relationExtensionMarker uint8 = 0xA1
+const (
+	relationExtensionMarker uint8 = 0xA1
+	kindExtensionMarker     uint8 = 0xA2
+)
 
 // MarshalNodeBinary encodes a node into the binary wire format v1.
 // Returns the raw bytes without the file header.
@@ -370,6 +381,18 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 	if err := binWriteString32(&buf, n.PoisonReason); err != nil {
 		return nil, err
 	}
+	// kind extension (marker-gated so legacy payloads without it decode cleanly).
+	// An empty kind is a legacy value and is canonicalized to work on write.
+	kind := n.Kind
+	if kind == "" {
+		kind = NodeKindWork
+	}
+	kb, ok := kindToBin[kind]
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown kind %q", ErrInvalidNode, n.Kind)
+	}
+	binWriteU8(&buf, kindExtensionMarker)
+	binWriteU8(&buf, kb)
 
 	return buf.Bytes(), nil
 }
@@ -812,6 +835,26 @@ func decodeNodeBinary(b []byte) (*Node, int, error) {
 		return nil, 0, err
 	}
 	n.PoisonReason = poisonReason
+	if pos == len(b) {
+		// Legacy payload written before the kind extension.
+		return n, pos, nil
+	}
+	marker, err = binReadU8(b, &pos)
+	if err != nil {
+		return nil, 0, err
+	}
+	if marker != kindExtensionMarker {
+		return nil, 0, fmt.Errorf("%w: unknown extension marker byte %d", ErrInvalidNode, marker)
+	}
+	kb, err := binReadU8(b, &pos)
+	if err != nil {
+		return nil, 0, err
+	}
+	kind, ok := binToKind[kb]
+	if !ok {
+		return nil, 0, fmt.Errorf("%w: unknown kind byte %d", ErrInvalidNode, kb)
+	}
+	n.Kind = kind
 
 	// Trailing-byte strictness is enforced by UnmarshalNodeBinary so that
 	// decodeNodeBinary can consume exactly one node from a longer buffer.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -658,5 +659,104 @@ func TestBinaryAdversarialNoTruncationRegression(t *testing.T) {
 	n.Title = long
 	if _, err := MarshalNodeBinary(n); err == nil {
 		t.Fatalf("oversized title must not be accepted (would truncate on write)")
+	}
+}
+
+// TestBinaryRoundtripKind verifies work and umbrella kinds roundtrip.
+func TestBinaryRoundtripKind(t *testing.T) {
+	for _, kind := range []NodeKind{NodeKindWork, NodeKindUmbrella} {
+		n := fullTestNode()
+		n.Kind = kind
+		b, err := MarshalNodeBinary(n)
+		if err != nil {
+			t.Fatalf("marshal kind=%s: %v", kind, err)
+		}
+		got, err := UnmarshalNodeBinary(b)
+		if err != nil {
+			t.Fatalf("unmarshal kind=%s: %v", kind, err)
+		}
+		if got.Kind != kind {
+			t.Fatalf("kind roundtrip mismatch: want %q got %q", kind, got.Kind)
+		}
+	}
+}
+
+// TestBinaryKindExtensionLegacyTruncation decodes a payload without the kind
+// extension (all fields up to poison_reason, then end) as empty kind.
+func TestBinaryKindExtensionLegacyTruncation(t *testing.T) {
+	n := fullTestNode()
+	n.Kind = NodeKindWork
+	full, err := MarshalNodeBinary(n)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// Drop the trailing marker + kind byte to simulate a pre-kind payload.
+	legacy := full[:len(full)-2]
+	got, err := UnmarshalNodeBinary(legacy)
+	if err != nil {
+		t.Fatalf("legacy payload without kind must decode: %v", err)
+	}
+	if got.Kind != "" {
+		t.Fatalf("legacy payload must decode to empty kind, got %q", got.Kind)
+	}
+	if effectiveKind(got) != NodeKindWork {
+		t.Fatalf("empty kind must resolve to work")
+	}
+}
+
+// TestBinaryRejectsUnknownKindByte verifies an invalid kind enum byte fails.
+func TestBinaryRejectsUnknownKindByte(t *testing.T) {
+	n := fullTestNode()
+	n.Kind = NodeKindUmbrella
+	b, err := MarshalNodeBinary(n)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	corrupted := make([]byte, len(b))
+	copy(corrupted, b)
+	corrupted[len(corrupted)-1] = 99 // invalid kind byte
+	if _, err := UnmarshalNodeBinary(corrupted); !errors.Is(err, ErrInvalidNode) {
+		t.Fatalf("expected ErrInvalidNode for unknown kind byte, got %v", err)
+	}
+}
+
+// TestBinaryRejectsUnknownKindMarker verifies a wrong extension marker after
+// poison_reason fails loudly instead of being ignored.
+func TestBinaryRejectsUnknownKindMarker(t *testing.T) {
+	n := fullTestNode()
+	b, err := MarshalNodeBinary(n)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	corrupted := make([]byte, len(b))
+	copy(corrupted, b)
+	corrupted[len(corrupted)-2] = 0xFF // wrong marker before kind byte
+	if _, err := UnmarshalNodeBinary(corrupted); !errors.Is(err, ErrInvalidNode) {
+		t.Fatalf("expected ErrInvalidNode for unknown marker, got %v", err)
+	}
+}
+
+// TestLegacyStoreMigratesToBinWithWorkKind verifies a JSON store with nodes
+// lacking a kind survives migration to binary and nodes resolve as work.
+func TestLegacyStoreMigratesToBinWithWorkKind(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageJSON)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	// Legacy-style node: no kind set at all.
+	n := &Node{Frontmatter: Frontmatter{Title: "legacy", SchemaVersion: CurrentSchemaVersion, Status: StatusActive, ClaimStatus: ClaimProvisional, Outcome: OutcomeUnset}}
+	if err := s.CreateNode(n); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := s.MigrateStorageFormat(StorageBIN); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	got, err := s.GetNode(n.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if effectiveKind(got) != NodeKindWork {
+		t.Fatalf("migrated legacy node must resolve to work, got %q", got.Kind)
 	}
 }

@@ -36,6 +36,10 @@ func removeString(in []string, needle string) []string {
 
 // matchesFilter reports whether a node matches the given filter criteria.
 func matchesFilter(n *Node, f Filter) bool {
+	// An empty kind in the node (legacy payload) is semantically work.
+	if f.Kind != "" && effectiveKind(n) != f.Kind {
+		return false
+	}
 	if f.Status != "" && n.Status != f.Status {
 		return false
 	}

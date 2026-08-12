@@ -315,3 +315,48 @@ func TestRunEndpointRequiresKindAdversarial(t *testing.T) {
 		t.Fatalf("run endpoint without endpoint_kind must be rejected")
 	}
 }
+
+// TestApplyNodeDefaultsSetsKindWork verifies the default kind is work.
+func TestApplyNodeDefaultsSetsKindWork(t *testing.T) {
+	n := &Node{Frontmatter: Frontmatter{Title: "t"}}
+	ApplyNodeDefaults(n, time.Now())
+	if n.Kind != NodeKindWork {
+		t.Fatalf("expected default kind work, got %q", n.Kind)
+	}
+	if n.IsUmbrella() {
+		t.Fatalf("work node must not be an umbrella")
+	}
+}
+
+// TestEffectiveKindLegacyEmptyIsWork verifies empty (legacy) kind resolves to work.
+func TestEffectiveKindLegacyEmptyIsWork(t *testing.T) {
+	n := &Node{Frontmatter: Frontmatter{Title: "legacy", Kind: ""}}
+	if effectiveKind(n) != NodeKindWork {
+		t.Fatalf("empty kind must resolve to work, got %q", effectiveKind(n))
+	}
+	if n.IsUmbrella() {
+		t.Fatalf("legacy empty kind must not be an umbrella")
+	}
+	u := &Node{Frontmatter: Frontmatter{Kind: NodeKindUmbrella}}
+	if !u.IsUmbrella() {
+		t.Fatalf("umbrella kind must be detected")
+	}
+}
+
+// TestValidateNodeRejectsUnknownKind verifies unknown kinds are rejected.
+func TestValidateNodeRejectsUnknownKind(t *testing.T) {
+	n := &Node{Frontmatter: Frontmatter{Title: "x", Kind: "project"}}
+	ApplyNodeDefaults(n, time.Now())
+	n.Kind = "project" // defaults would normalize; force the invalid value
+	if err := ValidateNode(n); !errors.Is(err, ErrInvalidNode) {
+		t.Fatalf("expected ErrInvalidNode for unknown kind, got %v", err)
+	}
+}
+
+// TestValidateNodeAcceptsEmptyKind verifies legacy payloads without kind pass.
+func TestValidateNodeAcceptsEmptyKind(t *testing.T) {
+	n := &Node{Frontmatter: Frontmatter{Title: "legacy", Kind: "", SchemaVersion: CurrentSchemaVersion, Status: StatusActive, ClaimStatus: ClaimProvisional, Outcome: OutcomeUnset}}
+	if err := ValidateNode(n); err != nil {
+		t.Fatalf("empty kind must pass validation (legacy payload): %v", err)
+	}
+}

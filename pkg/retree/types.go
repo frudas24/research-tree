@@ -23,6 +23,18 @@ const (
 // NodeID is a unique sequential identifier within a research root.
 type NodeID uint64
 
+// NodeKind classifies the semantic role of a node.
+type NodeKind string
+
+const (
+	// NodeKindWork is the default: an actionable research unit (idea, experiment,
+	// decision, fix). Legacy stores without a kind are interpreted as work.
+	NodeKindWork NodeKind = "work"
+	// NodeKindUmbrella is a boundary/program/roadmap node that groups admitted
+	// work and nested umbrellas; it is not itself an experimental claim.
+	NodeKindUmbrella NodeKind = "umbrella"
+)
+
 // NodeStatus represents the activity state of a research node.
 type NodeStatus string
 
@@ -245,6 +257,7 @@ type Frontmatter struct {
 	SchemaVersion   SchemaVersion  `json:"schema_version" yaml:"schema_version"`
 	ID              NodeID         `json:"id" yaml:"id"`
 	Title           string         `json:"title" yaml:"title"`
+	Kind            NodeKind       `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Status          NodeStatus     `json:"status" yaml:"status"`
 	ClaimStatus     ClaimStatus    `json:"claim_status,omitempty" yaml:"claim_status,omitempty"`
 	EvidenceStatus  EvidenceStatus `json:"evidence_status,omitempty" yaml:"evidence_status,omitempty"`
@@ -284,6 +297,7 @@ type Node struct {
 
 // Filter narrows ListNodes / QueryNodes results.
 type Filter struct {
+	Kind           NodeKind       `json:"kind,omitempty"`
 	Status         NodeStatus     `json:"status,omitempty"`
 	ClaimStatus    ClaimStatus    `json:"claim_status,omitempty"`
 	EvidenceStatus EvidenceStatus `json:"evidence_status,omitempty"`

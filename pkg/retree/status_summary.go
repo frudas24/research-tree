@@ -19,6 +19,7 @@ const (
 type NodeSummary struct {
 	ID              NodeID         `json:"id"`
 	Title           string         `json:"title"`
+	Kind            NodeKind       `json:"kind,omitempty"`
 	Status          NodeStatus     `json:"status"`
 	Outcome         Outcome        `json:"outcome,omitempty"`
 	ClaimStatus     ClaimStatus    `json:"claim_status"`
@@ -51,22 +52,42 @@ type HotspotSummary struct {
 	Hotness           int            `json:"hotness"`
 }
 
+// UmbrellaPressureEntry is a derived count-based pressure signal for one
+// umbrella. Unlike work hotspots it deliberately avoids the age/hotness formula:
+// umbrellas are programs, not experiments, so pressure is unresolved work.
+type UmbrellaPressureEntry struct {
+	ID         NodeID `json:"id"`
+	Title      string `json:"title"`
+	Agent      string `json:"agent"`
+	Active     int    `json:"active"`     // direct active children
+	Paused     int    `json:"paused"`     // direct paused children
+	Unresolved int    `json:"unresolved"` // descendants (excluding self) not done
+}
+
 // StatusSummary is the stable dashboard contract for CLI and ABI consumers.
 // Existing keys (total/active/done/paused/warnings/agent) are kept for compatibility.
+// active/done/paused and hotspots contain work nodes only; umbrellas are reported
+// separately so programs never distort actionable-work metrics.
 type StatusSummary struct {
-	Total             int                            `json:"total"`
-	Active            []NodeSummary                  `json:"active"`
-	Done              []NodeSummary                  `json:"done"`
-	Paused            []NodeSummary                  `json:"paused"`
-	Warnings          []BranchWarning                `json:"warnings"`
-	Agent             string                         `json:"agent"`
-	StatusCounts      map[NodeStatus]int             `json:"status_counts"`
-	ClaimStatusCounts map[ClaimStatus]int            `json:"claim_status_counts"`
-	OutcomeCounts     map[Outcome]int                `json:"outcome_counts"`
-	RunValidityCounts map[string]int                 `json:"run_validity_counts"`
-	Matrix            map[NodeStatus]map[Outcome]int `json:"matrix"`
-	HotspotFormula    string                         `json:"hotspot_formula"`
-	Hotspots          []HotspotSummary               `json:"hotspots"`
+	Total                int                            `json:"total"`
+	Active               []NodeSummary                  `json:"active"`
+	Done                 []NodeSummary                  `json:"done"`
+	Paused               []NodeSummary                  `json:"paused"`
+	Warnings             []BranchWarning                `json:"warnings"`
+	Agent                string                         `json:"agent"`
+	StatusCounts         map[NodeStatus]int             `json:"status_counts"`
+	ClaimStatusCounts    map[ClaimStatus]int            `json:"claim_status_counts"`
+	OutcomeCounts        map[Outcome]int                `json:"outcome_counts"`
+	RunValidityCounts    map[string]int                 `json:"run_validity_counts"`
+	Matrix               map[NodeStatus]map[Outcome]int `json:"matrix"`
+	HotspotFormula       string                         `json:"hotspot_formula"`
+	Hotspots             []HotspotSummary               `json:"hotspots"`
+	WorkStatusCounts     map[NodeStatus]int             `json:"work_status_counts"`
+	UmbrellaStatusCounts map[NodeStatus]int             `json:"umbrella_status_counts"`
+	UmbrellaActive       []NodeSummary                  `json:"umbrella_active,omitempty"`
+	UmbrellaDone         []NodeSummary                  `json:"umbrella_done,omitempty"`
+	UmbrellaPaused       []NodeSummary                  `json:"umbrella_paused,omitempty"`
+	UmbrellaPressure     []UmbrellaPressureEntry        `json:"umbrella_pressure,omitempty"`
 }
 
 // StatusBuildOptions controls optional status summary behavior.
@@ -128,10 +149,24 @@ func BuildStatusSummary(nodes []*Node, warnings []BranchWarning, opts StatusBuil
 
 	nodeStatus := buildNodeStatusMap(nodes)
 	childrenByParent := buildChildrenByParent(nodes)
+	workCounts := map[NodeStatus]int{
+		StatusActive: 0,
+		StatusDone:   0,
+		StatusPaused: 0,
+	}
+	umbrellaCounts := map[NodeStatus]int{
+		StatusActive: 0,
+		StatusDone:   0,
+		StatusPaused: 0,
+	}
 	active := make([]NodeSummary, 0)
 	done := make([]NodeSummary, 0)
 	paused := make([]NodeSummary, 0)
+	umbrellaActive := make([]NodeSummary, 0)
+	umbrellaDone := make([]NodeSummary, 0)
+	umbrellaPaused := make([]NodeSummary, 0)
 	hotspots := make([]HotspotSummary, 0)
+	umbrellaPressure := make([]UmbrellaPressureEntry, 0)
 
 	for _, n := range nodes {
 		status := normalizeStatus(n.Status)
@@ -143,6 +178,12 @@ func BuildStatusSummary(nodes []*Node, warnings []BranchWarning, opts StatusBuil
 		summary.ClaimStatus = claim
 		summary.Outcome = outcome
 
+		statusCounts[status]++
+		claimCounts[claim]++
+		outcomeCounts[outcome]++
+		runValidityCounts[latestRunValidity(n)]++
+		matrix[status][outcome]++
+
 		switch status {
 		case StatusDone:
 			done = append(done, summary)
@@ -152,12 +193,22 @@ func BuildStatusSummary(nodes []*Node, warnings []BranchWarning, opts StatusBuil
 			active = append(active, summary)
 		}
 
-		statusCounts[status]++
-		claimCounts[claim]++
-		outcomeCounts[outcome]++
-		runValidityCounts[latestRunValidity(n)]++
-		matrix[status][outcome]++
+		if n.IsUmbrella() {
+			umbrellaCounts[status]++
+			switch status {
+			case StatusDone:
+				umbrellaDone = append(umbrellaDone, summary)
+			case StatusPaused:
+				umbrellaPaused = append(umbrellaPaused, summary)
+			default:
+				umbrellaActive = append(umbrellaActive, summary)
+			}
+			continue
+		}
 
+		workCounts[status]++
+
+		// Umbrellas never enter the work hotspot formula.
 		pendingCount := countPendingChildren(nodeStatus, childrenByParent[n.ID])
 		hotspot := summarizeHotspot(n, pendingCount, len(childrenByParent[n.ID]), now)
 		if hotspot.Hotness > 0 {
@@ -165,10 +216,31 @@ func BuildStatusSummary(nodes []*Node, warnings []BranchWarning, opts StatusBuil
 		}
 	}
 
+	for _, n := range nodes {
+		if !n.IsUmbrella() {
+			continue
+		}
+		entry := UmbrellaPressureEntry{ID: n.ID, Title: n.Title, Agent: n.Agent}
+		for _, cid := range childrenByParent[n.ID] {
+			switch nodeStatus[cid] {
+			case StatusActive:
+				entry.Active++
+			case StatusPaused:
+				entry.Paused++
+			}
+		}
+		entry.Unresolved = unresolvedDescendants(nodeStatus, childrenByParent, n.ID)
+		umbrellaPressure = append(umbrellaPressure, entry)
+	}
+
 	sortNodeSummaries(active)
 	sortNodeSummaries(done)
 	sortNodeSummaries(paused)
+	sortNodeSummaries(umbrellaActive)
+	sortNodeSummaries(umbrellaDone)
+	sortNodeSummaries(umbrellaPaused)
 	sortHotspots(hotspots)
+	sortUmbrellaPressure(umbrellaPressure)
 	if len(hotspots) > hotspotLimit {
 		hotspots = hotspots[:hotspotLimit]
 	}
@@ -177,20 +249,52 @@ func BuildStatusSummary(nodes []*Node, warnings []BranchWarning, opts StatusBuil
 	}
 
 	return StatusSummary{
-		Total:             len(nodes),
-		Active:            active,
-		Done:              done,
-		Paused:            paused,
-		Warnings:          warnings,
-		Agent:             opts.Agent,
-		StatusCounts:      statusCounts,
-		ClaimStatusCounts: claimCounts,
-		OutcomeCounts:     outcomeCounts,
-		RunValidityCounts: runValidityCounts,
-		Matrix:            matrix,
-		HotspotFormula:    HotspotFormulaDescription,
-		Hotspots:          hotspots,
+		Total:                len(nodes),
+		Active:               active,
+		Done:                 done,
+		Paused:               paused,
+		Warnings:             warnings,
+		Agent:                opts.Agent,
+		StatusCounts:         statusCounts,
+		ClaimStatusCounts:    claimCounts,
+		OutcomeCounts:        outcomeCounts,
+		RunValidityCounts:    runValidityCounts,
+		Matrix:               matrix,
+		HotspotFormula:       HotspotFormulaDescription,
+		Hotspots:             hotspots,
+		WorkStatusCounts:     workCounts,
+		UmbrellaStatusCounts: umbrellaCounts,
+		UmbrellaActive:       umbrellaActive,
+		UmbrellaDone:         umbrellaDone,
+		UmbrellaPaused:       umbrellaPaused,
+		UmbrellaPressure:     umbrellaPressure,
 	}
+}
+
+// unresolvedDescendants counts every descendant of root (within the loaded
+// node set, excluding root itself) whose status is not done.
+func unresolvedDescendants(nodeStatus map[NodeID]NodeStatus, childrenByParent map[NodeID][]NodeID, root NodeID) int {
+	seen := map[NodeID]bool{}
+	count := 0
+	stack := append([]NodeID(nil), childrenByParent[root]...)
+	for len(stack) > 0 {
+		cur := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[cur] {
+			continue
+		}
+		seen[cur] = true
+		if st, ok := nodeStatus[cur]; ok && st != StatusDone {
+			count++
+		}
+		stack = append(stack, childrenByParent[cur]...)
+	}
+	return count
+}
+
+// sortUmbrellaPressure orders pressure entries by node ID.
+func sortUmbrellaPressure(entries []UmbrellaPressureEntry) {
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ID < entries[j].ID })
 }
 
 // FilterWarningsByNodeSet keeps warnings linked to nodes present in idSet.
@@ -232,6 +336,7 @@ func summarizeNodeWithChildren(n *Node, children []NodeID) NodeSummary {
 	return NodeSummary{
 		ID:              n.ID,
 		Title:           n.Title,
+		Kind:            effectiveKind(n),
 		Status:          normalizeStatus(n.Status),
 		Outcome:         normalizeOutcome(n.Outcome),
 		ClaimStatus:     normalizeClaimStatus(n.ClaimStatus),
