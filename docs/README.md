@@ -40,7 +40,7 @@ rt node list --status active --agent researcher
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.24+
 - No external dependencies (Cobra only for CLI)
 
 

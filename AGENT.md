@@ -31,7 +31,7 @@ became unsustainable for navigating branches, pivots, and dead ends.
 
 ## Project conventions
 
-- **Language:** Go 1.21+ (no external dependencies beyond cobra; `yaml.v3`
+- **Language:** Go 1.24+ (no external dependencies beyond cobra; `yaml.v3`
   only if we keep a legacy Markdown importer).
 - **Package:** `github.com/frudas24/research-tree/pkg/retree` is the public API.
 - **CLI:** `cmd/rt/main.go` uses cobra for subcommands.
