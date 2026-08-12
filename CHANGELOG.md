@@ -7,12 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.2] - 2026-08-12
+
 ### Fixed
 - Store locks now carry an owner token and refresh/release only while they
   still own that token, preventing a resumed stale owner from overwriting or
   deleting a newer lock holder.
 - Writers in the same process are additionally serialized per research root,
   closing intra-process races around lock handoff under heavy concurrent tests.
+- Composite node+feature creation now rolls back derived sidecars as well as
+  primary state, restoring `next_id`, node files, `edges.jsonl`, and
+  `relations.jsonl` after mid-persist failures.
+- Store lock handoff is now serialized under an OS-level guard lock on Unix and
+  Windows, closing the stale-lock takeover race between observe/refresh/remove.
+- Snapshot preflight now fails before mutations when `snapshots/` exists as a
+  file instead of a directory.
+- Snapshot restore no longer archives the internal `.lock.guard` file.
+- Snapshot extraction rejects absolute archive paths portably, including POSIX
+  absolute paths and Windows drive paths.
+- History restore validation no longer keeps snapshot tarballs open across the
+  restore path, fixing Windows rename failures during the history-preservation
+  test.
 
 ## [v0.4.1] - 2026-08-12
 
@@ -132,7 +147,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     snapshots with retention.
   - C FFI bridge (`libretree.so` / Windows DLL) and GoReleaser packaging.
 
-[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.2...HEAD
+[v0.4.2]: https://github.com/frudas24/research-tree/compare/v0.4.1...v0.4.2
 [v0.4.1]: https://github.com/frudas24/research-tree/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/frudas24/research-tree/compare/v0.3.3...v0.4.0
 [v0.3.3]: https://github.com/frudas24/research-tree/compare/v0.3.2...v0.3.3
