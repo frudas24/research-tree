@@ -162,6 +162,35 @@ func TestResourceEventsHistory(t *testing.T) {
 	}
 }
 
+// TestQueryNodesAllowsHistoricalResourceEvents verifies deleting a resource
+// does not turn historical lease events into store corruption.
+func TestQueryNodesAllowsHistoricalResourceEvents(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	node := &Node{Frontmatter: Frontmatter{Title: "gpu run"}}
+	mustNoErr(t, s.CreateNode(node))
+	mustNoErr(t, s.CreateResource(Resource{
+		ID:       "gpu-node-0",
+		Label:    "gpu-node-0 gpu0",
+		Kind:     ResourceGPU,
+		Enabled:  true,
+		Capacity: 1,
+	}))
+	mustNoErr(t, s.ClaimResource(ResourceLease{ResourceID: "gpu-node-0", NodeID: node.ID, Mode: LeaseExclusive, ClaimedBy: "codex"}))
+	mustNoErr(t, s.ReleaseResource(node.ID, "gpu-node-0"))
+	mustNoErr(t, s.DeleteResource("gpu-node-0"))
+
+	nodes, err := s.QueryNodes(Filter{})
+	mustNoErr(t, err)
+	if len(nodes) != 1 || nodes[0].ID != node.ID {
+		t.Fatalf("unexpected nodes after resource deletion: %+v", nodes)
+	}
+	events, err := s.ListResourceEvents()
+	mustNoErr(t, err)
+	if len(events) == 0 {
+		t.Fatal("expected historical resource events to remain readable")
+	}
+}
+
 // TestOpenBackfillsMissingResourceFiles verifies legacy stores created before
 // resources existed are auto-healed on open.
 func TestOpenBackfillsMissingResourceFiles(t *testing.T) {

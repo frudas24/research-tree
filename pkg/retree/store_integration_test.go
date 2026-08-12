@@ -797,16 +797,39 @@ func TestQueryNodesRejectsMissingParent(t *testing.T) {
 	}
 }
 
-// TestAuditStoreRejectsInvalidFeatureReferences verifies sidecar validation
-// catches semantically invalid feature references before the store is trusted.
-func TestAuditStoreRejectsInvalidFeatureReferences(t *testing.T) {
+// TestAuditStoreRejectsStructurallyInvalidFeatures verifies sidecar validation
+// still catches malformed feature payloads while allowing historical unmoored references.
+func TestAuditStoreRejectsStructurallyInvalidFeatures(t *testing.T) {
 	s := mustInit(t, StorageJSON)
 	root := &Node{Frontmatter: Frontmatter{Title: "root", Status: StatusActive}}
 	mustNoErr(t, s.CreateNode(root))
-	bad := []byte("{\"next_id\":2,\"features\":[{\"id\":\"f0001\",\"name\":\"Bad\",\"slug\":\"bad\",\"status\":\"active\",\"created_from\":999,\"nodes\":[{\"node_id\":999,\"role\":\"implementation\"}]}]}\n")
+	bad := []byte("{\"next_id\":2,\"features\":[{\"id\":\"f0001\",\"name\":\"Bad\",\"slug\":\"bad\",\"status\":\"active\",\"created_from\":1,\"nodes\":[{\"node_id\":1,\"role\":\"owner\"}]}]}\n")
 	mustNoErr(t, os.WriteFile(s.featuresPath(), bad, 0o644))
 	if err := s.auditStore(); err == nil {
 		t.Fatal("expected invalid feature sidecar to fail store audit")
+	}
+}
+
+// TestQueryNodesAllowsUnmooredFeatureHistory verifies deleting a node can leave
+// a feature historically unmoored without breaking node queries.
+func TestQueryNodesAllowsUnmooredFeatureHistory(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	root := &Node{Frontmatter: Frontmatter{Title: "root", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(root))
+	f, err := s.CreateFeature("Unmoored", root.ID)
+	mustNoErr(t, err)
+	if err := s.DeleteNode(root.ID, true); err != nil {
+		t.Fatalf("delete root: %v", err)
+	}
+	nodes, err := s.QueryNodes(Filter{})
+	mustNoErr(t, err)
+	if len(nodes) != 0 {
+		t.Fatalf("expected no remaining nodes, got %d", len(nodes))
+	}
+	got, err := s.GetFeature(f.ID)
+	mustNoErr(t, err)
+	if got.ID != f.ID || got.CreatedFrom != root.ID {
+		t.Fatalf("expected historically unmoored feature to stay readable, got %+v", got)
 	}
 }
 

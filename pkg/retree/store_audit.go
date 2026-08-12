@@ -70,9 +70,6 @@ func (s *Store) auditFeatures(g *Graph) (map[string]*Feature, error) {
 		if err := ValidateFeature(f); err != nil {
 			return nil, err
 		}
-		if _, ok := g.Nodes[f.CreatedFrom]; !ok {
-			return nil, fmt.Errorf("feature %s created_from node %d: %w", f.ID, f.CreatedFrom, ErrNotFound)
-		}
 		if prev, dup := byID[f.ID]; dup {
 			return nil, fmt.Errorf("%w: duplicate feature id %s (%s and %s)", ErrDuplicateID, f.ID, prev.Name, f.Name)
 		}
@@ -82,18 +79,10 @@ func (s *Store) auditFeatures(g *Graph) (map[string]*Feature, error) {
 		slugs[f.Slug] = f.ID
 		linked := make(map[NodeID]struct{}, len(f.Nodes))
 		for _, ln := range f.Nodes {
-			if _, ok := g.Nodes[ln.NodeID]; !ok {
-				return nil, fmt.Errorf("feature %s linked node %d: %w", f.ID, ln.NodeID, ErrNotFound)
-			}
 			if _, dup := linked[ln.NodeID]; dup {
 				return nil, fmt.Errorf("%w: duplicate linked node %d in feature %s", ErrDuplicateID, ln.NodeID, f.ID)
 			}
 			linked[ln.NodeID] = struct{}{}
-		}
-		if f.CurrentNode != 0 {
-			if _, ok := g.Nodes[f.CurrentNode]; !ok {
-				return nil, fmt.Errorf("feature %s current node %d: %w", f.ID, f.CurrentNode, ErrNotFound)
-			}
 		}
 		byID[f.ID] = f
 	}
@@ -162,9 +151,6 @@ func (s *Store) auditFeatureEdges(features map[string]*Feature, g *Graph) error 
 		if _, ok := features[edge.To]; !ok {
 			return fmt.Errorf("feature edge to %s: %w", edge.To, ErrNotFound)
 		}
-		if _, ok := g.Nodes[edge.CreatedFrom]; !ok {
-			return fmt.Errorf("feature edge created_from node %d: %w", edge.CreatedFrom, ErrNotFound)
-		}
 		key := fmt.Sprintf("%s:%s:%s", edge.From, edge.To, edge.Type)
 		if _, dup := seen[key]; dup {
 			return fmt.Errorf("%w: duplicate feature edge %s", ErrDuplicateID, key)
@@ -184,11 +170,11 @@ func (s *Store) auditWarnings(g *Graph) error {
 		if warning.ID == "" {
 			return fmt.Errorf("%w: warning id required", ErrInvalidNode)
 		}
-		if _, ok := g.Nodes[warning.RootCauseNode]; !ok {
-			return fmt.Errorf("warning root cause node %d: %w", warning.RootCauseNode, ErrNotFound)
+		if warning.RootCauseNode == 0 {
+			return fmt.Errorf("%w: warning root cause node required", ErrInvalidNode)
 		}
-		if _, ok := g.Nodes[warning.ImpactedNode]; !ok {
-			return fmt.Errorf("warning impacted node %d: %w", warning.ImpactedNode, ErrNotFound)
+		if warning.ImpactedNode == 0 {
+			return fmt.Errorf("%w: warning impacted node required", ErrInvalidNode)
 		}
 	}
 	return nil
@@ -210,11 +196,15 @@ func (s *Store) auditResourceEvents(g *Graph, resources map[string]Resource) err
 		if !slices.Contains(validLeaseModes, event.Mode) && event.Mode != "" {
 			return fmt.Errorf("%w: resource event mode=%q", ErrInvalidResource, event.Mode)
 		}
-		if _, ok := resources[event.ResourceID]; !ok {
-			return fmt.Errorf("resource event resource %s: %w", event.ResourceID, ErrNotFound)
+		if resources != nil {
+			if _, ok := resources[event.ResourceID]; !ok {
+				// Resource events are historical and must outlive the resource itself.
+			}
 		}
-		if _, ok := g.Nodes[event.NodeID]; !ok {
-			return fmt.Errorf("resource event node %d: %w", event.NodeID, ErrNotFound)
+		if g != nil {
+			if _, ok := g.Nodes[event.NodeID]; !ok {
+				// Resource events are historical and must outlive the node itself.
+			}
 		}
 	}
 	return nil
