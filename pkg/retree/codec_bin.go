@@ -172,6 +172,8 @@ const relationExtensionMarker uint8 = 0xA1
 
 // MarshalNodeBinary encodes a node into the binary wire format v1.
 // Returns the raw bytes without the file header.
+// It fails (instead of silently truncating) when a u16-prefixed string
+// exceeds 65535 bytes or a u32-prefixed string exceeds the u32 range.
 func MarshalNodeBinary(n *Node) ([]byte, error) {
 	if n == nil {
 		return nil, fmt.Errorf("%w: nil", ErrInvalidNode)
@@ -183,7 +185,9 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 	// id
 	binWriteU64(&buf, uint64(n.ID))
 	// title
-	binWriteString(&buf, n.Title)
+	if err := binWriteString(&buf, n.Title); err != nil {
+		return nil, err
+	}
 	// status
 	bs, ok := statusToBin[n.Status]
 	if !ok {
@@ -205,11 +209,15 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 	// parents
 	binWriteU64Slice(&buf, n.Parents)
 	// agent
-	binWriteString(&buf, n.Agent)
+	if err := binWriteString(&buf, n.Agent); err != nil {
+		return nil, err
+	}
 	// tags
 	binWriteU16(&buf, uint16(len(n.Tags)))
 	for _, t := range n.Tags {
-		binWriteString(&buf, t)
+		if err := binWriteString(&buf, t); err != nil {
+			return nil, err
+		}
 	}
 	// created / modified
 	binWriteI64(&buf, timeToBin(n.Created))
@@ -219,8 +227,12 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 	// commits
 	binWriteU16(&buf, uint16(len(n.Commits)))
 	for _, c := range n.Commits {
-		binWriteString(&buf, c.Hash)
-		binWriteString32(&buf, c.Message)
+		if err := binWriteString(&buf, c.Hash); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, c.Message); err != nil {
+			return nil, err
+		}
 	}
 	// artifacts
 	binWriteU16(&buf, uint16(len(n.Artifacts)))
@@ -230,33 +242,61 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 			return nil, fmt.Errorf("%w: unknown artifact mode %q", ErrInvalidArtifact, a.Mode)
 		}
 		binWriteU8(&buf, am)
-		binWriteString(&buf, a.Host)
-		binWriteString(&buf, a.Path)
-		binWriteString(&buf, a.Description)
+		if err := binWriteString(&buf, a.Host); err != nil {
+			return nil, err
+		}
+		if err := binWriteString(&buf, a.Path); err != nil {
+			return nil, err
+		}
+		if err := binWriteString(&buf, a.Description); err != nil {
+			return nil, err
+		}
 		binWriteI64(&buf, a.SizeBytes)
 	}
 	// invalidated_by
 	binWriteU64Slice(&buf, n.InvalidatedBy)
 	// invalidation_reason
-	binWriteString(&buf, n.InvalidationReason)
+	if err := binWriteString(&buf, n.InvalidationReason); err != nil {
+		return nil, err
+	}
 	// body (32-bit length)
-	binWriteString32(&buf, n.Body)
+	if err := binWriteString32(&buf, n.Body); err != nil {
+		return nil, err
+	}
 	// optional semantic extensions
-	binWriteString32(&buf, n.Scope)
-	binWriteString32(&buf, n.ExitCriteria)
+	if err := binWriteString32(&buf, n.Scope); err != nil {
+		return nil, err
+	}
+	if err := binWriteString32(&buf, n.ExitCriteria); err != nil {
+		return nil, err
+	}
 	binWriteU64Slice(&buf, n.ContinuedBy)
 	binWriteU64Slice(&buf, n.SupersededBy)
 	// structured runs
 	binWriteU16(&buf, uint16(len(n.Runs)))
 	for _, r := range n.Runs {
 		binWriteI64(&buf, timeToBin(r.Timestamp))
-		binWriteString32(&buf, r.Host)
-		binWriteString32(&buf, r.Command)
-		binWriteString32(&buf, r.OutDir)
-		binWriteString32(&buf, r.Seed)
-		binWriteString32(&buf, r.ETA)
-		binWriteString32(&buf, r.Cost)
-		binWriteString32(&buf, r.Note)
+		if err := binWriteString32(&buf, r.Host); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, r.Command); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, r.OutDir); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, r.Seed); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, r.ETA); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, r.Cost); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, r.Note); err != nil {
+			return nil, err
+		}
 	}
 	binWriteU16(&buf, uint16(len(n.Runs)))
 	for _, r := range n.Runs {
@@ -270,17 +310,27 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 				binWriteU8(&buf, 0)
 			}
 		}
-		binWriteString32(&buf, r.InvalidReason)
+		if err := binWriteString32(&buf, r.InvalidReason); err != nil {
+			return nil, err
+		}
 	}
 	binWriteU16(&buf, uint16(len(n.Runs)))
 	for _, r := range n.Runs {
-		binWriteString32(&buf, r.ResourceID)
-		binWriteString32(&buf, r.Endpoint)
-		binWriteString32(&buf, string(r.EndpointKind))
+		if err := binWriteString32(&buf, r.ResourceID); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, r.Endpoint); err != nil {
+			return nil, err
+		}
+		if err := binWriteString32(&buf, string(r.EndpointKind)); err != nil {
+			return nil, err
+		}
 	}
 	binWriteU8(&buf, milestoneClassToBin(n.MilestoneClass))
 	binWriteU8(&buf, milestoneKindToBin(n.MilestoneKind))
-	binWriteString32(&buf, n.MilestoneReason)
+	if err := binWriteString32(&buf, n.MilestoneReason); err != nil {
+		return nil, err
+	}
 	binWriteU8(&buf, relationExtensionMarker)
 	// relations
 	binWriteU16(&buf, uint16(len(n.Relations)))
@@ -291,7 +341,9 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 		}
 		binWriteU8(&buf, rt)
 		binWriteU64(&buf, uint64(rel.Target))
-		binWriteString32(&buf, rel.Note)
+		if err := binWriteString32(&buf, rel.Note); err != nil {
+			return nil, err
+		}
 	}
 	// primary_parent (optional u64)
 	if n.PrimaryParent != nil {
@@ -310,10 +362,14 @@ func MarshalNodeBinary(n *Node) ([]byte, error) {
 	}
 	binWriteU8(&buf, es)
 	binWriteU8(&buf, ec)
-	binWriteString32(&buf, n.EvidenceScope)
+	if err := binWriteString32(&buf, n.EvidenceScope); err != nil {
+		return nil, err
+	}
 	binWriteU64Slice(&buf, n.PoisonedBy)
 	binWriteU64Slice(&buf, n.RevalidatedBy)
-	binWriteString32(&buf, n.PoisonReason)
+	if err := binWriteString32(&buf, n.PoisonReason); err != nil {
+		return nil, err
+	}
 
 	return buf.Bytes(), nil
 }
@@ -806,27 +862,31 @@ func binWriteI64(buf *bytes.Buffer, v int64) {
 }
 
 // binWriteString writes a uint16-prefixed UTF-8 string to the buffer.
-func binWriteString(buf *bytes.Buffer, s string) {
-	l := len(s)
-	if l > binMaxStrU16 {
-		l = binMaxStrU16
+// It errors when the string exceeds the u16 length prefix instead of
+// silently truncating the payload.
+func binWriteString(buf *bytes.Buffer, s string) error {
+	if len(s) > binMaxStrU16 {
+		return fmt.Errorf("%w: string length %d exceeds max %d", ErrInvalidNode, len(s), binMaxStrU16)
 	}
-	binWriteU16(buf, uint16(l))
-	if l > 0 {
-		buf.WriteString(s[:l])
+	binWriteU16(buf, uint16(len(s)))
+	if len(s) > 0 {
+		buf.WriteString(s)
 	}
+	return nil
 }
 
 // binWriteString32 writes a uint32-prefixed UTF-8 string to the buffer.
-func binWriteString32(buf *bytes.Buffer, s string) {
-	l := len(s)
-	if l > binMaxBodyU32 {
-		l = binMaxBodyU32
+// It errors when the string exceeds the u32 length prefix instead of
+// silently truncating the payload.
+func binWriteString32(buf *bytes.Buffer, s string) error {
+	if len(s) > binMaxBodyU32 {
+		return fmt.Errorf("%w: string length %d exceeds max %d", ErrInvalidNode, len(s), binMaxBodyU32)
 	}
-	binWriteU32(buf, uint32(l))
-	if l > 0 {
-		buf.WriteString(s[:l])
+	binWriteU32(buf, uint32(len(s)))
+	if len(s) > 0 {
+		buf.WriteString(s)
 	}
+	return nil
 }
 
 // binWriteU64Slice writes a uint16-prefixed slice of uint64 IDs to the buffer.

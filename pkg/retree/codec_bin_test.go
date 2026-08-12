@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -588,5 +589,60 @@ func TestBinaryRoundtripAllOutcomes(t *testing.T) {
 				t.Fatalf("roundtrip mismatch: got status=%s outcome=%s", got.Status, got.Outcome)
 			}
 		}
+	}
+}
+
+// TestBinaryRejectsOversizedU16String verifies that a string exceeding the
+// u16 length prefix fails to marshal instead of being silently truncated.
+func TestBinaryRejectsOversizedU16String(t *testing.T) {
+	for _, field := range []struct {
+		name  string
+		apply func(*Node)
+	}{
+		{"title", func(n *Node) { n.Title = strings.Repeat("x", binMaxStrU16+1) }},
+		{"agent", func(n *Node) { n.Agent = strings.Repeat("a", binMaxStrU16+1) }},
+		{"tag", func(n *Node) { n.Tags = []string{strings.Repeat("t", binMaxStrU16+1)} }},
+		{"artifact_path", func(n *Node) { n.Artifacts = []Artifact{{Mode: ArtifactPath, Host: "local", Path: strings.Repeat("p", binMaxStrU16+1)}} }},
+	} {
+		t.Run(field.name, func(t *testing.T) {
+			n := fullTestNode()
+			field.apply(n)
+			b, err := MarshalNodeBinary(n)
+			if err == nil {
+				t.Fatalf("expected error for oversized %s, got %d bytes (silent truncation)", field.name, len(b))
+			}
+			if b != nil {
+				t.Fatalf("expected nil payload on error, got %d bytes", len(b))
+			}
+		})
+	}
+}
+
+// TestBinaryBoundaryU16String verifies the u16 limit itself still roundtrips.
+func TestBinaryBoundaryU16String(t *testing.T) {
+	n := fullTestNode()
+	n.Title = strings.Repeat("x", binMaxStrU16)
+	b, err := MarshalNodeBinary(n)
+	if err != nil {
+		t.Fatalf("marshal boundary title: %v", err)
+	}
+	got, err := UnmarshalNodeBinary(b)
+	if err != nil {
+		t.Fatalf("unmarshal boundary title: %v", err)
+	}
+	if len(got.Title) != binMaxStrU16 {
+		t.Fatalf("boundary title length mismatch: %d", len(got.Title))
+	}
+}
+
+// TestBinaryAdversarialNoTruncationRegression verifies the exact prior
+// failure mode: a title longer than the u16 limit used to be cut to 65535
+// bytes on disk, silently losing data on the next read.
+func TestBinaryAdversarialNoTruncationRegression(t *testing.T) {
+	long := strings.Repeat("long-title-", 9000) // 72000 bytes > 65535
+	n := fullTestNode()
+	n.Title = long
+	if _, err := MarshalNodeBinary(n); err == nil {
+		t.Fatalf("oversized title must not be accepted (would truncate on write)")
 	}
 }
