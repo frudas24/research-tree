@@ -1,6 +1,9 @@
 package retree
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 // createNodeWithFeature creates a node and links it to a feature as one store
 // mutation, avoiding partial persistence when either side of the composite
@@ -47,11 +50,19 @@ func (s *Store) createNodeWithFeature(n *Node, featureSpec string, role FeatureN
 		if err := linkNodeInFeature(target, n.ID, role); err != nil {
 			return err
 		}
+		edgeSnapshot, err := captureFileSnapshot(s.edgesPath())
+		if err != nil {
+			return err
+		}
+		relationSnapshot, err := captureFileSnapshot(s.relationsPath())
+		if err != nil {
+			return err
+		}
 		if err := s.writeNextID(next + 1); err != nil {
 			return err
 		}
 		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); err != nil {
-			if rollbackErr := s.rollbackCreatedPrimaryState(next, n.ID); rollbackErr != nil {
+			if rollbackErr := s.rollbackCreatedPrimaryState(next, n.ID, edgeSnapshot, relationSnapshot); rollbackErr != nil {
 				return fmt.Errorf("persist node graph: %w; rollback node failed: %v", err, rollbackErr)
 			}
 			return err
@@ -68,9 +79,39 @@ func (s *Store) createNodeWithFeature(n *Node, featureSpec string, role FeatureN
 	})
 }
 
+type fileSnapshot struct {
+	present bool
+	data    []byte
+}
+
+// captureFileSnapshot records the exact previous file contents, or absence,
+// so a failed composite create can restore derived sidecars byte-for-byte.
+func captureFileSnapshot(path string) (fileSnapshot, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fileSnapshot{}, nil
+		}
+		return fileSnapshot{}, err
+	}
+	return fileSnapshot{present: true, data: append([]byte(nil), data...)}, nil
+}
+
+// restoreFileSnapshot reinstates a previously captured file state, removing any
+// partially published replacement before rewriting the saved contents.
+func restoreFileSnapshot(path string, snap fileSnapshot) error {
+	if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if !snap.present {
+		return nil
+	}
+	return os.WriteFile(path, snap.data, 0o644)
+}
+
 // rollbackCreatedPrimaryState removes the just-created node from the primary
 // node store and restores next_id without depending on sidecar regeneration.
-func (s *Store) rollbackCreatedPrimaryState(previousNext NodeID, createdID NodeID) error {
+func (s *Store) rollbackCreatedPrimaryState(previousNext NodeID, createdID NodeID, edgeSnapshot fileSnapshot, relationSnapshot fileSnapshot) error {
 	nodes, err := s.loadAllNodes()
 	if err != nil {
 		return err
@@ -90,6 +131,12 @@ func (s *Store) rollbackCreatedPrimaryState(previousNext NodeID, createdID NodeI
 		if err := s.writeAllNodesBIN(filtered); err != nil {
 			return err
 		}
+	}
+	if err := restoreFileSnapshot(s.edgesPath(), edgeSnapshot); err != nil {
+		return err
+	}
+	if err := restoreFileSnapshot(s.relationsPath(), relationSnapshot); err != nil {
+		return err
 	}
 	return s.writeNextID(previousNext)
 }
