@@ -58,6 +58,9 @@ func TestGraphHandlerReturnsPayload(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("unexpected CORS header on /graph: %q", got)
+	}
 	var payload GraphPayload
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -101,6 +104,9 @@ func TestNodeHandlerReturnsDetail(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("unexpected CORS header on /node: %q", got)
 	}
 	var detail NodeDetail
 	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {

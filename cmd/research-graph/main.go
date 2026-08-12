@@ -55,7 +55,6 @@ func newMux(store *retree.Store) *http.ServeMux {
 	// /graph endpoint: full DAG projection
 	mux.HandleFunc("/graph", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		payload, err := buildGraphPayload(store)
 		if err != nil {
@@ -70,7 +69,6 @@ func newMux(store *retree.Store) *http.ServeMux {
 	// /node endpoint: full detail for one node
 	mux.HandleFunc("/node", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		idStr := r.URL.Query().Get("id")
 		var id uint64

@@ -225,7 +225,7 @@ export async function bootCy(container) {
       const d = await r.json();
       content.innerHTML = buildDetailHTML(d);
     } catch (e) {
-      content.innerHTML = `<div style="color:var(--bad)">Error: ${e.message}</div>`;
+      content.innerHTML = `<div style="color:var(--bad)">Error: ${esc(e.message)}</div>`;
     }
   }
 
@@ -282,7 +282,7 @@ export async function bootCy(container) {
     html += ` Outcome: <b>${d.outcome}</b>`;
     html += ` Evidence: <b>${d.evidence_status}</b>${evidenceBadge}</div>`;
 
-    if (d.evidence_cause) html += `<div>Cause: ${d.evidence_cause}${d.evidence_scope ? ' — ' + d.evidence_scope : ''}</div>`;
+    if (d.evidence_cause) html += `<div>Cause: ${esc(d.evidence_cause)}${d.evidence_scope ? ' — ' + esc(d.evidence_scope) : ''}</div>`;
     if (d.poison_reason) html += `<div style="color:var(--bad)">\u2623 Poison: ${esc(d.poison_reason)}</div>`;
     if (d.invalidation_reason) html += `<div style="color:var(--bad)">\u2717 Invalidated: ${esc(d.invalidation_reason)}</div>`;
 
