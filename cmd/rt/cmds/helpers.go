@@ -561,7 +561,7 @@ func summaryLine(body string) string {
 }
 
 // formatNodeHuman formats a node for human-readable display.
-func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, leases []retree.ResourceLease, full bool) string {
+func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, leases []retree.ResourceLease, full bool, progress *retree.UmbrellaProgress) string {
 	var b strings.Builder
 	title := titleWithVerdict(n)
 	if cc != nil {
@@ -614,6 +614,20 @@ func formatNodeHuman(cc *colorizer, n *retree.Node, children []retree.NodeID, le
 			ids[i] = fmt.Sprintf("%04d", c)
 		}
 		fmt.Fprintf(&b, "  children: %s\n", strings.Join(ids, ", "))
+	}
+	if progress != nil {
+		b.WriteString("  progress:\n")
+		fmt.Fprintf(&b, "    direct children: %d (work %d, umbrella %d)\n", progress.DirectChildren, progress.WorkChildren, progress.UmbrellaChildren)
+		fmt.Fprintf(&b, "    active: %d  done: %d  paused: %d\n", progress.Active, progress.Done, progress.Paused)
+		if len(progress.ActionableLeaves) > 0 {
+			leaves := make([]string, len(progress.ActionableLeaves))
+			for i, id := range progress.ActionableLeaves {
+				leaves[i] = fmt.Sprintf("%04d", id)
+			}
+			fmt.Fprintf(&b, "    actionable leaves: %s\n", strings.Join(leaves, ", "))
+		} else {
+			b.WriteString("    actionable leaves: none\n")
+		}
 	}
 	if len(n.ContinuedBy) > 0 {
 		ids := make([]string, len(n.ContinuedBy))
@@ -889,6 +903,37 @@ func formatBytes(n int64) string {
 		return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
 	}
 	return fmt.Sprintf("%.1fGB", float64(n)/(1024*1024*1024))
+}
+
+// nodeKindLabel returns the effective kind label, treating legacy empty
+// values as work for display and JSON output.
+func nodeKindLabel(n *retree.Node) retree.NodeKind {
+	if n == nil || n.Kind == "" {
+		return retree.NodeKindWork
+	}
+	return n.Kind
+}
+
+// withProgress attaches a derived umbrella progress block to a JSON payload
+// when the node is an umbrella; work nodes stay unchanged.
+func withProgress(m map[string]any, p *retree.UmbrellaProgress) map[string]any {
+	if p != nil {
+		m["progress"] = p
+	}
+	return m
+}
+
+// parseNodeKind converts a string to a NodeKind, rejecting unknown values.
+// An empty string means "use the default" (work).
+func parseNodeKind(s string) (retree.NodeKind, error) {
+	k := retree.NodeKind(strings.TrimSpace(s))
+	if k == "" {
+		return "", nil
+	}
+	if k != retree.NodeKindWork && k != retree.NodeKindUmbrella {
+		return "", fmt.Errorf("unknown kind %q (valid: work, umbrella)", k)
+	}
+	return k, nil
 }
 
 // parseNodeStatus converts a string to NodeStatus.

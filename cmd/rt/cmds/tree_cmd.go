@@ -142,7 +142,11 @@ func newTreeCmd(opts *RootOptions) *cobra.Command {
 				rendered[id] = true
 				title := cc.golden(n.MilestoneClass, titleWithVerdict(n))
 				evidence := evidenceIcon(n)
-				line := fmt.Sprintf("%04d | %s | %s | %s | [%s] %s", n.ID, cc.status(n.Status, statusIcon(n.Status)), cc.outcomeColor(n.Outcome, outcomeIcon(n)), evidence, n.Agent, title)
+				kindPrefix := ""
+				if n.IsUmbrella() {
+					kindPrefix = "☂ "
+				}
+				line := fmt.Sprintf("%s%04d | %s | %s | %s | [%s] %s", kindPrefix, n.ID, cc.status(n.Status, statusIcon(n.Status)), cc.outcomeColor(n.Outcome, outcomeIcon(n)), evidence, n.Agent, title)
 				if flat {
 					lines = append(lines, strings.TrimSpace(line))
 				} else {

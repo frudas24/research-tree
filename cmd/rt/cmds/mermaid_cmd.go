@@ -103,7 +103,11 @@ func newMermaidCmd(opts *RootOptions) *cobra.Command {
 				if n.Outcome == retree.OutcomeUnset {
 					short = status
 				}
-				fmt.Fprintf(&b, "  N%d[\"%s\\n(%s)\"]\n", n.ID, label, short)
+				if n.IsUmbrella() {
+					fmt.Fprintf(&b, "  N%d((\"%s\\n(%s)\"))\n", n.ID, label, short)
+				} else {
+					fmt.Fprintf(&b, "  N%d[\"%s\\n(%s)\"]\n", n.ID, label, short)
+				}
 			}
 
 			// Edges

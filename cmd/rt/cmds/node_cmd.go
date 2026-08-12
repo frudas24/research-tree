@@ -34,7 +34,7 @@ func newNodeCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeCreateCmd constructs the "node create" subcommand.
 func newNodeCreateCmd(opts *RootOptions) *cobra.Command {
-	var title, status, claimStatus, evidenceStatus, evidenceCause, evidenceScope, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, parentsCSV, continuedByCSV, supersededByCSV, agent, tagsCSV, bodyInline, bodyFile, relationsCSV, primaryParentStr, featureSpec, featureRole string
+	var title, status, kind, claimStatus, evidenceStatus, evidenceCause, evidenceScope, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, parentsCSV, continuedByCSV, supersededByCSV, agent, tagsCSV, bodyInline, bodyFile, relationsCSV, primaryParentStr, featureSpec, featureRole string
 	var createFeature bool
 	var outcome string
 	var useEditor bool
@@ -82,9 +82,14 @@ is taken from --body or --body-file if provided.`,
 				}
 				primaryParent = &pp
 			}
+			nodeKind, err := parseNodeKind(kind)
+			if err != nil {
+				return err
+			}
 			n := &retree.Node{
 				Frontmatter: retree.Frontmatter{
 					Title:           title,
+					Kind:            nodeKind,
 					Status:          parseNodeStatus(status),
 					ClaimStatus:     parseClaimStatus(claimStatus),
 					EvidenceStatus:  parseEvidenceStatus(evidenceStatus),
@@ -133,6 +138,7 @@ is taken from --body or --body-file if provided.`,
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "Node title (required)")
+	cmd.Flags().StringVar(&kind, "kind", "work", "Node kind: work|umbrella")
 	cmd.Flags().StringVar(&status, "status", "active", "Node status")
 	cmd.Flags().StringVar(&claimStatus, "claim-status", "provisional", "Claim status")
 	cmd.Flags().StringVar(&evidenceStatus, "evidence-status", "clean", "Evidence status")
@@ -185,13 +191,21 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 			}
 			children, _ := store.GetChildren(id)
 			leases, _ := store.GetNodeResourceLeases(id)
+			var progress *retree.UmbrellaProgress
+			if n.IsUmbrella() {
+				progress, err = store.DerivedProgress(id)
+				if err != nil {
+					return fmt.Errorf("derived progress: %w", err)
+				}
+			}
 			if agentView {
 				latestRun, _ := latestRunMeta(n)
 				if opts.OutputJSON {
-					return printMaybeJSON(cmd, true, map[string]any{
+					return printMaybeJSON(cmd, true, withProgress(map[string]any{
 						"handoff_version":  "v1",
 						"id":               n.ID,
 						"title":            n.Title,
+						"kind":             nodeKindLabel(n),
 						"display_title":    titleWithVerdict(n),
 						"status":           n.Status,
 						"outcome":          n.Outcome,
@@ -235,15 +249,16 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 						"revision": n.Revision,
 						"created":  n.Created,
 						"modified": n.Modified,
-					}, "")
+					}, progress), "")
 				}
 				return printMaybeJSON(cmd, false, nil, formatNodeAgentView(cc, n, children, leases))
 			}
 			full := !strings.EqualFold(view, "summary")
 			if opts.OutputJSON && !full {
-				return printMaybeJSON(cmd, true, map[string]any{
+				return printMaybeJSON(cmd, true, withProgress(map[string]any{
 					"id":               n.ID,
 					"title":            n.Title,
+					"kind":             nodeKindLabel(n),
 					"status":           n.Status,
 					"outcome":          n.Outcome,
 					"claim_status":     n.ClaimStatus,
@@ -268,13 +283,14 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 					"revision":         n.Revision,
 					"created":          n.Created,
 					"modified":         n.Modified,
-				}, "")
+				}, progress), "")
 			}
 			if opts.OutputJSON {
-				return printMaybeJSON(cmd, true, map[string]any{
+				return printMaybeJSON(cmd, true, withProgress(map[string]any{
 					"schema_version":      n.SchemaVersion,
 					"id":                  n.ID,
 					"title":               n.Title,
+					"kind":                nodeKindLabel(n),
 					"status":              n.Status,
 					"claim_status":        n.ClaimStatus,
 					"evidence_status":     n.EvidenceStatus,
@@ -304,9 +320,9 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 					"poison_reason":       n.PoisonReason,
 					"body":                n.Body,
 					"active_resources":    leases,
-				}, "")
+				}, progress), "")
 			}
-			return printMaybeJSON(cmd, false, nil, formatNodeHuman(cc, n, children, leases, full))
+			return printMaybeJSON(cmd, false, nil, formatNodeHuman(cc, n, children, leases, full, progress))
 		},
 	}
 	cmd.Flags().StringVar(&view, "view", "full", "View mode: summary|full")
@@ -316,7 +332,7 @@ func newNodeShowCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeEditCmd constructs the "node edit" subcommand.
 func newNodeEditCmd(opts *RootOptions) *cobra.Command {
-	var status, claimStatus, evidenceStatus, evidenceCause, evidenceScope, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, addTags, rmTags, parentsCSV, addParentsCSV, rmParentsCSV, continuedByCSV, supersededByCSV, bodyInline, bodyFile, appendBody, relationsCSV, addRelationsCSV, rmRelationsCSV, primaryParentStr string
+	var status, kind, claimStatus, evidenceStatus, evidenceCause, evidenceScope, milestoneClass, milestoneKind, milestoneReason, scope, exitCriteria, addTags, rmTags, parentsCSV, addParentsCSV, rmParentsCSV, continuedByCSV, supersededByCSV, bodyInline, bodyFile, appendBody, relationsCSV, addRelationsCSV, rmRelationsCSV, primaryParentStr string
 	var outcome string
 	var useEditor bool
 	cmd := &cobra.Command{
@@ -375,6 +391,13 @@ text at the end instead of replacing.`,
 			}
 			if strings.TrimSpace(status) != "" {
 				n.Status = parseNodeStatus(status)
+			}
+			if cmd.Flags().Changed("kind") {
+				nodeKind, err := parseNodeKind(kind)
+				if err != nil {
+					return err
+				}
+				n.Kind = nodeKind
 			}
 			if strings.TrimSpace(claimStatus) != "" {
 				n.ClaimStatus = parseClaimStatus(claimStatus)
@@ -519,6 +542,7 @@ text at the end instead of replacing.`,
 		},
 	}
 	cmd.Flags().StringVar(&status, "status", "", "New status")
+	cmd.Flags().StringVar(&kind, "kind", "", "New node kind: work|umbrella")
 	cmd.Flags().StringVar(&claimStatus, "claim-status", "", "New claim status")
 	cmd.Flags().StringVar(&evidenceStatus, "evidence-status", "", "Set evidence status")
 	cmd.Flags().StringVar(&evidenceCause, "evidence-cause", "", "Set evidence cause")
@@ -575,7 +599,7 @@ func newNodeDeleteCmd(opts *RootOptions) *cobra.Command {
 
 // newNodeListCmd constructs the "node list" subcommand.
 func newNodeListCmd(opts *RootOptions) *cobra.Command {
-	var status, claimStatus, evidenceStatus, evidenceCause, outcome, milestoneClass, milestoneKind, tag, tagsAllCSV, tagsAnyCSV, agent, titleContains, scopeContains, bodyContains, sortBy, order, hasArtifact, continuedByRef, supersededByRef string
+	var status, kind, claimStatus, evidenceStatus, evidenceCause, outcome, milestoneClass, milestoneKind, tag, tagsAllCSV, tagsAnyCSV, agent, titleContains, scopeContains, bodyContains, sortBy, order, hasArtifact, continuedByRef, supersededByRef string
 	var limit, offset int
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -612,7 +636,12 @@ func newNodeListCmd(opts *RootOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			filterKind, err := parseNodeKind(kind)
+			if err != nil {
+				return err
+			}
 			ids, err := store.ListNodes(retree.Filter{
+				Kind:           filterKind,
 				Status:         parseNodeStatus(status),
 				ClaimStatus:    parseClaimStatus(claimStatus),
 				EvidenceStatus: parseEvidenceStatus(evidenceStatus),
@@ -658,6 +687,7 @@ func newNodeListCmd(opts *RootOptions) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status")
+	cmd.Flags().StringVar(&kind, "kind", "", "Filter by kind: work|umbrella")
 	cmd.Flags().StringVar(&claimStatus, "claim-status", "", "Filter by claim status")
 	cmd.Flags().StringVar(&evidenceStatus, "evidence-status", "", "Filter by evidence status")
 	cmd.Flags().StringVar(&evidenceCause, "evidence-cause", "", "Filter by evidence cause")

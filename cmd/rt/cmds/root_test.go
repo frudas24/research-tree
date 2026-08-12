@@ -2009,3 +2009,141 @@ func TestCLICurrentNodeOnlyFromImplFixDecision(t *testing.T) {
 		t.Fatalf("expected no current_node (proposal+benchmark don't qualify): %s", out)
 	}
 }
+
+// TestCLIKindLifecycle verifies create --kind umbrella, edit --kind, list --kind
+// filtering, and the derived progress block in show for umbrellas.
+func TestCLIKindLifecycle(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+
+	out, err := runCLI(t, "--research-root", root, "node", "create", "--kind", "umbrella", "--title", "program")
+	if err != nil || !strings.Contains(out, "created node 0001") {
+		t.Fatalf("create umbrella output=%q err=%v", out, err)
+	}
+	out, err = runCLI(t, "--research-root", root, "node", "create", "--title", "work item", "--parents", "1")
+	if err != nil || !strings.Contains(out, "created node 0002") {
+		t.Fatalf("create work output=%q err=%v", out, err)
+	}
+
+	// Show umbrella JSON carries kind + progress.
+	jsonOut, err := runCLI(t, "--research-root", root, "--json", "node", "show", "1")
+	if err != nil {
+		t.Fatalf("show json: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(jsonOut), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if payload["kind"] != "umbrella" {
+		t.Fatalf("kind = %v, want umbrella", payload["kind"])
+	}
+	prog, ok := payload["progress"].(map[string]any)
+	if !ok {
+		t.Fatalf("umbrella show must include derived progress, got %v", payload["progress"])
+	}
+	if prog["direct_children"] != float64(1) {
+		t.Fatalf("direct_children = %v, want 1", prog["direct_children"])
+	}
+
+	// Work node show has kind work and no progress.
+	jsonOut, err = runCLI(t, "--research-root", root, "--json", "node", "show", "2")
+	if err != nil {
+		t.Fatalf("show work json: %v", err)
+	}
+	payload = map[string]any{}
+	_ = json.Unmarshal([]byte(jsonOut), &payload)
+	if payload["kind"] != "work" {
+		t.Fatalf("work kind = %v, want work", payload["kind"])
+	}
+	if _, has := payload["progress"]; has {
+		t.Fatalf("work node must not carry progress: %v", payload["progress"])
+	}
+
+	// list --kind filters.
+	out, err = runCLI(t, "--research-root", root, "node", "list", "--kind", "umbrella")
+	if err != nil || !strings.Contains(out, "0001") || strings.Contains(out, "0002") {
+		t.Fatalf("list umbrella output=%q err=%v", out, err)
+	}
+	out, err = runCLI(t, "--research-root", root, "node", "list", "--kind", "work")
+	if err != nil || !strings.Contains(out, "0002") || strings.Contains(out, "0001") {
+		t.Fatalf("list work output=%q err=%v", out, err)
+	}
+
+	// Unknown kind must be rejected on create and edit.
+	if _, err := runCLI(t, "--research-root", root, "node", "create", "--kind", "project", "--title", "x"); err == nil {
+		t.Fatalf("create with unknown kind must fail")
+	}
+	if _, err := runCLI(t, "--research-root", root, "node", "edit", "2", "--kind", "project"); err == nil {
+		t.Fatalf("edit with unknown kind must fail")
+	}
+
+	// Edit work -> umbrella; now it must list as umbrella.
+	if _, err := runCLI(t, "--research-root", root, "node", "edit", "2", "--kind", "umbrella"); err != nil {
+		t.Fatalf("edit kind: %v", err)
+	}
+	out, err = runCLI(t, "--research-root", root, "node", "list", "--kind", "umbrella")
+	if err != nil || !strings.Contains(out, "0002") {
+		t.Fatalf("after edit list umbrella output=%q err=%v", out, err)
+	}
+}
+
+// TestCLIKindAdversarialDoneUmbrella verifies an umbrella closed as done
+// requires a terminal outcome through the CLI.
+func TestCLIKindAdversarialDoneUmbrella(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	if _, err := runCLI(t, "--research-root", root, "node", "create", "--kind", "umbrella", "--title", "program", "--status", "done"); err == nil {
+		t.Fatalf("done umbrella without outcome must fail")
+	}
+	if _, err := runCLI(t, "--research-root", root, "node", "create", "--kind", "umbrella", "--title", "program", "--status", "done", "--outcome", "success"); err != nil {
+		t.Fatalf("done umbrella with outcome must succeed: %v", err)
+	}
+}
+
+// TestCLIStatusSeparatesWorkAndUmbrellas verifies the status dashboard renders
+// separated work/umbrella counts and umbrella pressure.
+func TestCLIStatusSeparatesWorkAndUmbrellas(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--kind", "umbrella", "--title", "program")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "task", "--parents", "1")
+
+	out, err := runCLI(t, "--research-root", root, "status")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(out, "Work nodes:") || !strings.Contains(out, "Umbrellas:") {
+		t.Fatalf("status must separate work and umbrellas:\n%s", out)
+	}
+	if !strings.Contains(out, "1 active | 0 done | 0 paused") {
+		t.Fatalf("umbrella counts missing:\n%s", out)
+	}
+	if !strings.Contains(out, "pressure") {
+		t.Fatalf("umbrella pressure missing:\n%s", out)
+	}
+}
+
+// TestCLITreeAndMermaidMarkUmbrellas verifies the tree prefixes umbrellas with
+// ☂ and mermaid uses the double-circle shape.
+func TestCLITreeAndMermaidMarkUmbrellas(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	_, _ = runCLI(t, "--research-root", root, "init")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--kind", "umbrella", "--title", "program")
+	_, _ = runCLI(t, "--research-root", root, "node", "create", "--title", "task", "--parents", "1")
+
+	out, err := runCLI(t, "--research-root", root, "tree")
+	if err != nil || !strings.Contains(out, "☂") {
+		t.Fatalf("tree must mark umbrellas with ☂ (out=%q err=%v)", out, err)
+	}
+
+	out, err = runCLI(t, "--research-root", root, "mermaid")
+	if err != nil {
+		t.Fatalf("mermaid: %v", err)
+	}
+	if !strings.Contains(out, `N1(("program`) {
+		t.Fatalf("mermaid must render umbrella as double-circle:\n%s", out)
+	}
+	if !strings.Contains(out, `N2["task`) {
+		t.Fatalf("mermaid must render work as box:\n%s", out)
+	}
+}

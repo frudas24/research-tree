@@ -11,15 +11,17 @@ import (
 )
 
 const (
-	statusSectionOverview = "overview"
-	statusSectionActive   = "active"
-	statusSectionDone     = "done"
-	statusSectionPaused   = "paused"
-	statusSectionClaim    = "claim"
-	statusSectionRuns     = "runs"
-	statusSectionWarnings = "warnings"
-	statusSectionHotspots = "hotspots"
-	statusSectionMatrix   = "matrix"
+	statusSectionOverview  = "overview"
+	statusSectionActive    = "active"
+	statusSectionDone      = "done"
+	statusSectionPaused    = "paused"
+	statusSectionClaim     = "claim"
+	statusSectionRuns      = "runs"
+	statusSectionWarnings  = "warnings"
+	statusSectionHotspots  = "hotspots"
+	statusSectionMatrix    = "matrix"
+	statusSectionWork      = "work"
+	statusSectionUmbrellas = "umbrellas"
 )
 
 // newStatusCmd constructs the "status" subcommand.
@@ -99,7 +101,7 @@ Use --tag, --scope-contains, and --agent to narrow the scope.`,
 	cmd.Flags().StringVar(&scopeContains, "scope-contains", "", "Filter by scope substring")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Print detailed node lists")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Limit detailed rows per section (0 = no limit)")
-	cmd.Flags().StringVar(&section, "section", "", "Comma-separated sections: overview,active,done,paused,claim,runs,warnings,hotspots,matrix")
+	cmd.Flags().StringVar(&section, "section", "", "Comma-separated sections: overview,active,done,paused,claim,runs,warnings,hotspots,matrix,work,umbrellas")
 	cmd.Flags().BoolVar(&showMatrix, "matrix", false, "Render status×outcome matrix in text output")
 	return cmd
 }
@@ -158,7 +160,7 @@ func shouldRenderSection(section string, selected map[string]struct{}) bool {
 // renderStatusText builds the human-readable status dashboard.
 func renderStatusText(cc *colorizer, summary retree.StatusSummary, opts statusRenderOptions) string {
 	lines := make([]string, 0, 64)
-	header := fmt.Sprintf("Nodes: %d total | %d active | %d done | %d paused", summary.Total, len(summary.Active), len(summary.Done), len(summary.Paused))
+	header := fmt.Sprintf("Nodes: %d total | %d work | %d umbrellas", summary.Total, countStatuses(summary.WorkStatusCounts), countStatuses(summary.UmbrellaStatusCounts))
 	if opts.Agent != "" {
 		header += fmt.Sprintf("  (agent: %s)", opts.Agent)
 	}
@@ -171,17 +173,44 @@ func renderStatusText(cc *colorizer, summary retree.StatusSummary, opts statusRe
 	lines = append(lines, header)
 	lines = append(lines, "")
 
+	if shouldRenderSection(statusSectionWork, opts.Sections) {
+		lines = append(lines, "Work nodes:")
+		lines = append(lines, fmt.Sprintf("  %d active | %d done | %d paused",
+			summary.WorkStatusCounts[retree.StatusActive],
+			summary.WorkStatusCounts[retree.StatusDone],
+			summary.WorkStatusCounts[retree.StatusPaused]))
+		lines = append(lines, "")
+	}
+
+	if shouldRenderSection(statusSectionUmbrellas, opts.Sections) {
+		lines = append(lines, "Umbrellas:")
+		lines = append(lines, fmt.Sprintf("  %d active | %d done | %d paused",
+			summary.UmbrellaStatusCounts[retree.StatusActive],
+			summary.UmbrellaStatusCounts[retree.StatusDone],
+			summary.UmbrellaStatusCounts[retree.StatusPaused]))
+		if len(summary.UmbrellaPressure) > 0 {
+			lines = append(lines, "  pressure (active children | paused | unresolved descendants):")
+			for _, p := range summary.UmbrellaPressure {
+				lines = append(lines, fmt.Sprintf("    ☂ %04d %s — %d | %d | %d", p.ID, p.Title, p.Active, p.Paused, p.Unresolved))
+			}
+		}
+		lines = append(lines, "")
+	}
+
 	detailMode := opts.Verbose || len(opts.Sections) > 0 || summary.Total <= 20
+	workActive := filterNodeSummariesByKind(summary.Active, retree.NodeKindWork)
+	workDone := filterNodeSummariesByKind(summary.Done, retree.NodeKindWork)
+	workPaused := filterNodeSummariesByKind(summary.Paused, retree.NodeKindWork)
 
 	if shouldRenderSection(statusSectionOverview, opts.Sections) {
-		roots, branching, leaves := summarizeActiveTopology(summary.Active)
+		roots, branching, leaves := summarizeActiveTopology(workActive)
 		lines = append(lines, "Active Overview:")
 		lines = append(lines, fmt.Sprintf("  roots: %d | with pending children: %d | leaves: %d", roots, branching, leaves))
 		lines = append(lines, "")
 	}
 
 	if shouldRenderSection(statusSectionDone, opts.Sections) {
-		doneOutcomes := countOutcomes(summary.Done)
+		doneOutcomes := countOutcomes(workDone)
 		lines = append(lines, "Done Outcomes:")
 		lines = append(lines, fmt.Sprintf("  success: %d | failure: %d | inconclusive: %d | unset: %d",
 			doneOutcomes[retree.OutcomeSuccess],
@@ -193,7 +222,7 @@ func renderStatusText(cc *colorizer, summary retree.StatusSummary, opts statusRe
 	}
 
 	if shouldRenderSection(statusSectionPaused, opts.Sections) {
-		pausedOutcomes := countOutcomes(summary.Paused)
+		pausedOutcomes := countOutcomes(workPaused)
 		lines = append(lines, "Paused Outcomes:")
 		lines = append(lines, fmt.Sprintf("  inconclusive: %d | unset: %d | success: %d | failure: %d",
 			pausedOutcomes[retree.OutcomeInconclusive],
@@ -269,13 +298,13 @@ func renderStatusText(cc *colorizer, summary retree.StatusSummary, opts statusRe
 
 	if detailMode {
 		if shouldRenderSection(statusSectionActive, opts.Sections) {
-			appendNodeSection(&lines, cc, "Active:", summary.Active, opts.Limit)
+			appendNodeSection(&lines, cc, "Active:", workActive, opts.Limit)
 		}
 		if shouldRenderSection(statusSectionDone, opts.Sections) {
-			appendNodeSection(&lines, cc, "Done (completed):", summary.Done, opts.Limit)
+			appendNodeSection(&lines, cc, "Done (completed):", workDone, opts.Limit)
 		}
 		if shouldRenderSection(statusSectionPaused, opts.Sections) {
-			appendNodeSection(&lines, cc, "Paused:", summary.Paused, opts.Limit)
+			appendNodeSection(&lines, cc, "Paused:", workPaused, opts.Limit)
 		}
 	}
 
@@ -283,6 +312,25 @@ func renderStatusText(cc *colorizer, summary retree.StatusSummary, opts statusRe
 		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// filterNodeSummariesByKind keeps only summaries with the requested effective
+// kind, treating a missing kind label as work for legacy compatibility.
+func filterNodeSummariesByKind(nodes []retree.NodeSummary, kind retree.NodeKind) []retree.NodeSummary {
+	if len(nodes) == 0 {
+		return nil
+	}
+	out := make([]retree.NodeSummary, 0, len(nodes))
+	for _, n := range nodes {
+		nodeKind := n.Kind
+		if nodeKind == "" {
+			nodeKind = retree.NodeKindWork
+		}
+		if nodeKind == kind {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // summarizeActiveTopology returns active roots, branching nodes, and active leaves.
@@ -381,6 +429,16 @@ func applyNodeLimit(nodes []retree.NodeSummary, limit int) []retree.NodeSummary 
 }
 
 // applyHotspotLimit truncates hotspot rows.
+// countStatuses sums a status-count map defensively (missing keys count zero).
+func countStatuses(counts map[retree.NodeStatus]int) int {
+	total := 0
+	for _, v := range counts {
+		total += v
+	}
+	return total
+}
+
+// applyHotspotLimit truncates hotspot listings to the requested limit.
 func applyHotspotLimit(hotspots []retree.HotspotSummary, limit int) []retree.HotspotSummary {
 	if limit <= 0 || len(hotspots) <= limit {
 		return hotspots
