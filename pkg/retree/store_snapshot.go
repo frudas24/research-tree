@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,11 @@ type snapshotManifest struct {
 	Latest    string         `json:"latest"`
 	Snapshots []SnapshotMeta `json:"snapshots"`
 }
+
+var (
+	renamePath    = os.Rename
+	removeAllPath = os.RemoveAll
+)
 
 // createSnapshot creates a tar.gz snapshot and enforces retention policy.
 func (s *Store) createSnapshot(operation string) error {
@@ -98,13 +104,9 @@ func (s *Store) packSnapshot(dst string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
 	gz := gzip.NewWriter(f)
-	defer func() { _ = gz.Close() }()
 	tw := tar.NewWriter(gz)
-	defer func() { _ = tw.Close() }()
-
-	return filepath.Walk(s.rootPath, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(s.rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -133,10 +135,30 @@ func (s *Store) packSnapshot(dst string) error {
 		if err != nil {
 			return err
 		}
-		defer func() { _ = file.Close() }()
-		_, err = io.Copy(tw, file)
-		return err
+		_, copyErr := io.Copy(tw, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
 	})
+	closeErr := tw.Close()
+	if closeErr == nil {
+		closeErr = gz.Close()
+	} else {
+		_ = gz.Close()
+	}
+	fileCloseErr := f.Close()
+	if closeErr == nil {
+		closeErr = fileCloseErr
+	}
+	if walkErr != nil && closeErr != nil {
+		return errors.Join(walkErr, closeErr)
+	}
+	if walkErr != nil {
+		return walkErr
+	}
+	return closeErr
 }
 
 // fileSHA256 computes the SHA-256 hash of a file.
@@ -232,11 +254,11 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 			return err
 		}
 		rollbackDir := filepath.Join(parentDir, "."+filepath.Base(s.rootPath)+".restore-backup-"+time.Now().UTC().Format("20060102_150405.000000000"))
-		success := false
+		rollbackActive := false
 		defer func() {
-			if !success {
-				_ = os.RemoveAll(stagingDir)
-				_ = os.RemoveAll(rollbackDir)
+			_ = removeAllPath(stagingDir)
+			if !rollbackActive {
+				_ = removeAllPath(rollbackDir)
 			}
 		}()
 		if err := copyDir(tmpDir, stagingDir); err != nil {
@@ -261,18 +283,23 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := staged.loadGraph(); err != nil {
+		if err := staged.auditStore(); err != nil {
 			return err
 		}
-		if err := os.Rename(s.rootPath, rollbackDir); err != nil {
+		if err := renamePath(s.rootPath, rollbackDir); err != nil {
 			return err
 		}
-		if err := os.Rename(stagingDir, s.rootPath); err != nil {
-			_ = os.Rename(rollbackDir, s.rootPath)
-			return err
+		rollbackActive = true
+		if err := renamePath(stagingDir, s.rootPath); err != nil {
+			if rerr := renamePath(rollbackDir, s.rootPath); rerr != nil {
+				return fmt.Errorf("publish restored store: %w; rollback restore failed: %v; original store preserved at %s", err, rerr, rollbackDir)
+			}
+			rollbackActive = false
+			return fmt.Errorf("publish restored store: %w", err)
 		}
-		success = true
-		return os.RemoveAll(rollbackDir)
+		rollbackActive = false
+		_ = removeAllPath(rollbackDir)
+		return nil
 	})
 }
 
