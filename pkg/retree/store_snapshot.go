@@ -46,7 +46,10 @@ func (s *Store) createSnapshotProtected(operation string, protect map[string]str
 	if err != nil {
 		return err
 	}
-	manifest, _ := s.readManifest()
+	manifest, err := s.readManifestStrict()
+	if err != nil {
+		return err
+	}
 	manifest.Latest = id
 	manifest.Snapshots = append(manifest.Snapshots, SnapshotMeta{
 		ID:        id,
@@ -54,6 +57,7 @@ func (s *Store) createSnapshotProtected(operation string, protect map[string]str
 		Operation: operation,
 		Hash:      h,
 	})
+	dropped := make([]string, 0)
 	for len(manifest.Snapshots) > 3 {
 		drop := -1
 		for i, snap := range manifest.Snapshots {
@@ -68,10 +72,16 @@ func (s *Store) createSnapshotProtected(operation string, protect map[string]str
 		if drop == -1 {
 			break
 		}
-		_ = os.Remove(s.snapshotPath(manifest.Snapshots[drop].ID))
+		dropped = append(dropped, manifest.Snapshots[drop].ID)
 		manifest.Snapshots = append(manifest.Snapshots[:drop], manifest.Snapshots[drop+1:]...)
 	}
-	return s.writeManifest(manifest)
+	if err := s.writeManifest(manifest); err != nil {
+		return err
+	}
+	for _, id := range dropped {
+		_ = os.Remove(s.snapshotPath(id))
+	}
+	return nil
 }
 
 // packSnapshot walks the root and creates a tar.gz archive.
@@ -208,19 +218,53 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 			return err
 		}
 		_ = os.Remove(filepath.Join(tmpDir, "lock"))
-		entries, err := os.ReadDir(s.rootPath)
+		parentDir := filepath.Dir(s.rootPath)
+		stagingDir, err := os.MkdirTemp(parentDir, ".retree-restore-new-")
 		if err != nil {
 			return err
 		}
-		for _, e := range entries {
-			if e.Name() == "history" || e.Name() == "snapshots" || e.Name() == "lock" {
-				continue
+		rollbackDir := filepath.Join(parentDir, "."+filepath.Base(s.rootPath)+".restore-backup-"+time.Now().UTC().Format("20060102_150405.000000000"))
+		success := false
+		defer func() {
+			if !success {
+				_ = os.RemoveAll(stagingDir)
+				_ = os.RemoveAll(rollbackDir)
 			}
-			if err := os.RemoveAll(filepath.Join(s.rootPath, e.Name())); err != nil {
+		}()
+		if err := copyDir(tmpDir, stagingDir); err != nil {
+			return err
+		}
+		if err := copyIfExists(s.historyDir(), filepath.Join(stagingDir, "history")); err != nil {
+			return err
+		}
+		if err := copyIfExists(s.snapshotsDir(), filepath.Join(stagingDir, "snapshots")); err != nil {
+			return err
+		}
+		lock, err := s.readLockInfo()
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err == nil {
+			if err := writeLockFile(filepath.Join(stagingDir, "lock"), lock); err != nil {
 				return err
 			}
 		}
-		return copyDir(tmpDir, s.rootPath)
+		staged, err := openStore(stagingDir)
+		if err != nil {
+			return err
+		}
+		if _, err := staged.loadGraph(); err != nil {
+			return err
+		}
+		if err := os.Rename(s.rootPath, rollbackDir); err != nil {
+			return err
+		}
+		if err := os.Rename(stagingDir, s.rootPath); err != nil {
+			_ = os.Rename(rollbackDir, s.rootPath)
+			return err
+		}
+		success = true
+		return os.RemoveAll(rollbackDir)
 	})
 }
 
@@ -282,7 +326,7 @@ func untarGz(src, dst string) error {
 
 // snapshotMeta resolves one snapshot ID from the persisted manifest.
 func (s *Store) snapshotMeta(snapshotID string) (SnapshotMeta, error) {
-	manifest, err := s.readManifest()
+	manifest, err := s.readManifestStrict()
 	if err != nil {
 		return SnapshotMeta{}, err
 	}
@@ -292,6 +336,16 @@ func (s *Store) snapshotMeta(snapshotID string) (SnapshotMeta, error) {
 		}
 	}
 	return SnapshotMeta{}, ErrNotFound
+}
+
+func (s *Store) readManifestStrict() (snapshotManifest, error) {
+	if _, err := os.Stat(s.manifestPath()); err == nil {
+		return s.readManifest()
+	} else if os.IsNotExist(err) {
+		return snapshotManifest{}, nil
+	} else {
+		return snapshotManifest{}, err
+	}
 }
 
 // isSafeArchivePath rejects absolute paths and any path containing a ".."
@@ -330,4 +384,21 @@ func copyDir(src, dst string) error {
 		}
 		return copyFile(path, target)
 	})
+}
+
+func copyIfExists(src, dst string) error {
+	if _, err := os.Stat(src); err == nil {
+		return copyDir(src, dst)
+	} else if os.IsNotExist(err) {
+		return nil
+	} else {
+		return err
+	}
+}
+
+func writeLockFile(path string, info lockInfo) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(formatLockInfo(info)), 0o644)
 }

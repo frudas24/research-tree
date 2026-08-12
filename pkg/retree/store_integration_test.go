@@ -548,6 +548,16 @@ func TestSnapshotsRetentionAndRestore(t *testing.T) {
 	mustNoErr(t, err)
 }
 
+// TestCreateSnapshotFailsOnCorruptManifest verifies a present but invalid
+// snapshot manifest blocks further snapshot creation instead of being replaced.
+func TestCreateSnapshotFailsOnCorruptManifest(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	mustNoErr(t, os.WriteFile(s.manifestPath(), []byte("{not-json}\n"), 0o644))
+	if err := s.createSnapshot("manual"); err == nil {
+		t.Fatal("expected corrupt manifest to abort snapshot creation")
+	}
+}
+
 // TestRestoreOldestSnapshotWithFullRetention verifies restoring the oldest
 // retained snapshot does not delete it when creating the pre-restore backup.
 func TestRestoreOldestSnapshotWithFullRetention(t *testing.T) {
@@ -640,6 +650,43 @@ func TestRestoreIgnoresHistoricalLock(t *testing.T) {
 	}
 }
 
+// TestRestoreRejectsCorruptSnapshotWithoutTouchingStore verifies restore
+// validates the staged snapshot before swapping it into place.
+func TestRestoreRejectsCorruptSnapshotWithoutTouchingStore(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	original := &Node{Frontmatter: Frontmatter{Title: "original", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(original))
+	snaps, err := s.ListSnapshots()
+	mustNoErr(t, err)
+	if len(snaps) == 0 {
+		t.Fatal("expected snapshots")
+	}
+	snapID := snaps[0].ID
+
+	replacement := &Node{Frontmatter: Frontmatter{Title: "replacement", Status: StatusActive}}
+	mustNoErr(t, s.CreateNode(replacement))
+
+	mustNoErr(t, os.WriteFile(s.snapshotPath(snapID), []byte("not-a-tarball"), 0o644))
+	manifest, err := s.readManifest()
+	mustNoErr(t, err)
+	for i := range manifest.Snapshots {
+		if manifest.Snapshots[i].ID == snapID {
+			manifest.Snapshots[i].Hash, err = fileSHA256(s.snapshotPath(snapID))
+			mustNoErr(t, err)
+		}
+	}
+	mustNoErr(t, s.writeManifest(manifest))
+
+	if err := s.RestoreSnapshot(snapID); err == nil {
+		t.Fatal("expected restore of corrupt snapshot to fail")
+	}
+	got, err := s.GetNode(replacement.ID)
+	mustNoErr(t, err)
+	if got.Title != replacement.Title {
+		t.Fatalf("current store changed after failed restore: %+v", got)
+	}
+}
+
 // TestMigrateJSONToBINAndBack verifies storage format migration roundtrip.
 func TestMigrateJSONToBINAndBack(t *testing.T) {
 	s := mustInit(t, StorageJSON)
@@ -666,6 +713,17 @@ func TestLockStaleIsReclaimed(t *testing.T) {
 	stale := "pid: 1\nhost: \"h\"\ntimestamp: \"2000-01-01T00:00:00Z\"\noperation: \"x\"\nowner: \"y\"\ntoken: \"stale-token\"\n"
 	mustNoErr(t, os.WriteFile(s.lockPath(), []byte(stale), 0o644))
 	mustNoErr(t, s.CreateNode(&Node{Frontmatter: Frontmatter{Title: "ok"}}))
+}
+
+// TestLoadGraphRejectsMissingParent verifies stores with phantom parent
+// references fail during graph construction instead of loading silently.
+func TestLoadGraphRejectsMissingParent(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	raw := []byte("{\"id\":1,\"title\":\"ghost-parent\",\"schema_version\":1,\"status\":\"active\",\"claim_status\":\"provisional\",\"evidence_status\":\"clean\",\"outcome\":\"unset\",\"parents\":[999]}\n")
+	mustNoErr(t, os.WriteFile(filepath.Join(s.nodesDir(), "0001.json"), raw, 0o644))
+	if _, err := s.GetRoots(); err == nil {
+		t.Fatal("expected missing parent to fail graph load")
+	}
 }
 
 // TestInvalidateClaimWarningsAndAck verifies claim invalidation, warnings, and ack.

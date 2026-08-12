@@ -82,6 +82,29 @@ func TestGetNodeJSONIDMismatchAdversarial(t *testing.T) {
 	if _, err := s.GetNode(7); err == nil {
 		t.Fatalf("ID mismatch must be rejected")
 	}
+	if _, err := s.QueryNodes(Filter{}); err == nil {
+		t.Fatalf("query must reject filename/payload ID mismatch too")
+	}
+}
+
+// TestGetNodeJSONRejectsInvalidPayload verifies direct JSON reads reject nodes
+// whose on-disk content bypasses normal validation.
+func TestGetNodeJSONRejectsInvalidPayload(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageJSON)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	raw := []byte("{\"id\":1,\"title\":\"bad\",\"schema_version\":1,\"status\":\"banana\"}\n")
+	if err := os.WriteFile(filepath.Join(s.nodesDir(), "0001.json"), raw, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := s.GetNode(1); err == nil {
+		t.Fatalf("invalid JSON node must be rejected on direct read")
+	}
+	if _, err := s.QueryNodes(Filter{}); err == nil {
+		t.Fatalf("invalid JSON node must be rejected on scans too")
+	}
 }
 
 // TestGetNodeBINRejectsUnsafeIndexLength verifies crafted nodes.idx lengths
@@ -108,6 +131,33 @@ func TestGetNodeBINRejectsUnsafeIndexLength(t *testing.T) {
 	}
 	if _, err := s.GetNode(1); err == nil {
 		t.Fatalf("unsafe negative index length must be rejected")
+	}
+}
+
+// TestGetNodeBINRejectsOversizedIndexLength verifies absurd but in-range
+// payload lengths fail before attempting an excessive allocation.
+func TestGetNodeBINRejectsOversizedIndexLength(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageBIN)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	n := &Node{Frontmatter: Frontmatter{Title: "safe", Status: StatusActive}}
+	if err := s.CreateNode(n); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	raw := map[string]binIndexEntry{
+		"1": {Offset: int64(binHeaderSize), Length: maxBinNodePayloadSize + 1, Checksum: 0},
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal idx: %v", err)
+	}
+	if err := os.WriteFile(s.nodesIdxPath(), append(b, '\n'), 0o644); err != nil {
+		t.Fatalf("write idx: %v", err)
+	}
+	if _, err := s.GetNode(1); err == nil {
+		t.Fatalf("oversized index length must be rejected")
 	}
 }
 

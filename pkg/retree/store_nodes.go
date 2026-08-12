@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const maxBinNodePayloadSize = 64 << 20
+
 type binIndexEntry struct {
 	Offset   int64  `json:"offset"`
 	Length   int64  `json:"length"`
@@ -34,6 +36,9 @@ func (s *Store) loadGraph() (*Graph, error) {
 		if err := g.addNode(n, false); err != nil {
 			return nil, err
 		}
+	}
+	if err := validateGraphReferentialIntegrity(g); err != nil {
+		return nil, err
 	}
 	return g, nil
 }
@@ -57,11 +62,7 @@ func (s *Store) loadAllNodesJSON() ([]*Node, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(s.nodesDir(), e.Name()))
-		if err != nil {
-			return nil, err
-		}
-		n, err := UnmarshalNodeJSON(b)
+		n, err := loadAndValidateJSONNode(filepath.Join(s.nodesDir(), e.Name()), true)
 		if err != nil {
 			return nil, err
 		}
@@ -268,6 +269,9 @@ func (s *Store) getNodeJSON(id NodeID) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := normalizeAndValidateLoadedNode(n); err != nil {
+		return nil, err
+	}
 	if n.ID != id {
 		return nil, fmt.Errorf("%w: file %04d.json contains node %d", ErrInvalidNode, id, n.ID)
 	}
@@ -331,6 +335,9 @@ func validateBinIndexEntry(fileSize int64, entry binIndexEntry) error {
 	if entry.Length <= 0 {
 		return fmt.Errorf("%w: invalid node length %d", ErrInvalidNode, entry.Length)
 	}
+	if entry.Length > maxBinNodePayloadSize {
+		return fmt.Errorf("%w: node length %d exceeds defensive payload limit %d", ErrInvalidNode, entry.Length, maxBinNodePayloadSize)
+	}
 	if entry.Length > int64(math.MaxInt) {
 		return fmt.Errorf("%w: node length %d exceeds process limit", ErrInvalidNode, entry.Length)
 	}
@@ -339,6 +346,49 @@ func validateBinIndexEntry(fileSize int64, entry binIndexEntry) error {
 	}
 	if entry.Length > fileSize-entry.Offset {
 		return fmt.Errorf("%w: node range offset=%d length=%d exceeds file size %d", ErrInvalidNode, entry.Offset, entry.Length, fileSize)
+	}
+	return nil
+}
+
+func loadAndValidateJSONNode(path string, checkFilenameID bool) (*Node, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	n, err := UnmarshalNodeJSON(b)
+	if err != nil {
+		return nil, err
+	}
+	if err := normalizeAndValidateLoadedNode(n); err != nil {
+		return nil, err
+	}
+	if checkFilenameID {
+		id, err := parseJSONNodeID(filepath.Base(path))
+		if err != nil {
+			return nil, err
+		}
+		if n.ID != id {
+			return nil, fmt.Errorf("%w: file %s contains node %d", ErrInvalidNode, filepath.Base(path), n.ID)
+		}
+	}
+	return n, nil
+}
+
+func normalizeAndValidateLoadedNode(n *Node) error {
+	if n == nil {
+		return fmt.Errorf("%w: nil", ErrInvalidNode)
+	}
+	ApplyNodeDefaults(n, n.Created)
+	return ValidateNode(n)
+}
+
+func validateGraphReferentialIntegrity(g *Graph) error {
+	for childID, parents := range g.Parents {
+		for _, parentID := range parents {
+			if _, ok := g.Nodes[parentID]; !ok {
+				return fmt.Errorf("%w: node %d references missing parent %d", ErrInvalidNode, childID, parentID)
+			}
+		}
 	}
 	return nil
 }
