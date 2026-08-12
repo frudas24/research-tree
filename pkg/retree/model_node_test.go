@@ -2,6 +2,7 @@ package retree
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -234,5 +235,65 @@ func TestValidateRunRecordEndpointKinds(t *testing.T) {
 	}
 	if err := ValidateRunRecord(RunRecord{Endpoint: "gpu-node-0", EndpointKind: EndpointDNS}); !errors.Is(err, ErrInvalidNode) {
 		t.Fatalf("expected invalid run dns endpoint, got %v", err)
+	}
+}
+
+// TestApplyNodeDefaultsNormalizesRuns verifies empty endpoint_kind values are
+// persisted as the canonical "none" instead of an empty string.
+func TestApplyNodeDefaultsNormalizesRuns(t *testing.T) {
+	n := &Node{
+		Frontmatter: Frontmatter{Title: "run node"},
+		Runs: []RunRecord{
+			{Command: "train.py", Endpoint: "", EndpointKind: ""},
+			{Command: "eval.py", Endpoint: "", EndpointKind: EndpointDNS},
+		},
+	}
+	ApplyNodeDefaults(n, time.Now())
+	if n.Runs[0].EndpointKind != EndpointNone {
+		t.Fatalf("empty endpoint_kind must normalize to none, got %q", n.Runs[0].EndpointKind)
+	}
+	if n.Runs[1].EndpointKind != EndpointDNS {
+		t.Fatalf("explicit endpoint_kind must be preserved, got %q", n.Runs[1].EndpointKind)
+	}
+}
+
+// TestPersistedRunEndpointKindNormalized verifies the store-level roundtrip:
+// a run created without endpoint_kind comes back with "none".
+func TestPersistedRunEndpointKindNormalized(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageJSON)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	n := &Node{
+		Frontmatter: Frontmatter{Title: "run node"},
+		Runs:        []RunRecord{{Command: "train.py", Endpoint: "", EndpointKind: ""}},
+	}
+	if err := s.CreateNode(n); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := s.GetNode(n.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(got.Runs) != 1 || got.Runs[0].EndpointKind != EndpointNone {
+		t.Fatalf("persisted run endpoint_kind = %q, want %q", got.Runs[0].EndpointKind, EndpointNone)
+	}
+}
+
+// TestRunEndpointRequiresKindAdversarial verifies that an endpoint without an
+// explicit endpoint_kind is rejected instead of silently persisted.
+func TestRunEndpointRequiresKindAdversarial(t *testing.T) {
+	root := t.TempDir()
+	s, err := Init(filepath.Join(root, "research"), StorageJSON)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	n := &Node{
+		Frontmatter: Frontmatter{Title: "bad run node"},
+		Runs:        []RunRecord{{Command: "train.py", Endpoint: "192.168.1.5"}},
+	}
+	if err := s.CreateNode(n); err == nil {
+		t.Fatalf("run endpoint without endpoint_kind must be rejected")
 	}
 }

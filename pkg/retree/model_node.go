@@ -103,6 +103,17 @@ func ApplyNodeDefaults(n *Node, now time.Time) {
 	if n.Revision == 0 {
 		n.Revision = 1
 	}
+	for i := range n.Runs {
+		normalizeRunRecord(&n.Runs[i])
+	}
+}
+
+// normalizeRunRecord fills deterministic defaults so persisted runs always
+// carry a canonical endpoint_kind instead of an empty string.
+func normalizeRunRecord(r *RunRecord) {
+	if r.EndpointKind == "" {
+		r.EndpointKind = EndpointNone
+	}
 }
 
 // ValidateNode validates a normalized node payload.
