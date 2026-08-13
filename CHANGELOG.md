@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.3] - 2026-08-13
+
+### Fixed
+- Legacy outcome repair now preflights the full store with sidecar auditing
+  while tolerating only historical `done + outcome=unset` nodes, so corrupt
+  sidecars abort before any mutation or snapshot is written.
+- Restoring `repair_legacy_outcomes_pre` snapshots now succeeds even though
+  they intentionally preserve legacy `done + outcome=unset` history for
+  recovery.
+
+### Changed
+- `StatusSummary` documentation now explicitly matches the compatibility
+  contract: legacy `active/done/paused` arrays still include umbrellas, while
+  work-only metrics live in `WorkStatusCounts`, `Hotspots`, and `Umbrella*`
+  projections.
+- README now documents the operational rule that restoring a legacy snapshot
+  requires rerunning `rt storage repair-outcomes` before strict commands such
+  as `rt status` will accept the store again.
+
 ## [v0.4.2] - 2026-08-12
 
 ### Fixed
@@ -147,7 +166,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     snapshots with retention.
   - C FFI bridge (`libretree.so` / Windows DLL) and GoReleaser packaging.
 
-[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.3...HEAD
+[v0.4.3]: https://github.com/frudas24/research-tree/compare/v0.4.2...v0.4.3
 [v0.4.2]: https://github.com/frudas24/research-tree/compare/v0.4.1...v0.4.2
 [v0.4.1]: https://github.com/frudas24/research-tree/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/frudas24/research-tree/compare/v0.3.3...v0.4.0

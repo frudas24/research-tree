@@ -289,6 +289,19 @@ governance boundaries. They can have parents and children like any other node,
 but they are intentionally excluded from work-only hotspots so organizational
 structure does not inflate actionable pressure.
 
+If you restore a historical snapshot that still contains legacy
+`status=done` + `outcome=unset` nodes, strict commands such as `rt status`
+will reject that store again until you rerun:
+
+```bash
+rt storage repair-outcomes
+rt storage repair-outcomes --set 202=success --set 203=inconclusive
+```
+
+That is intentional: restore preserves history exactly, and the repair step is
+the explicit migration from legacy historical state back into the current
+strict model.
+
 ### Feature lineage
 
 Feature lineage adds a second layer above the research DAG:
@@ -316,7 +329,7 @@ instead of returning a misleading partial-clean report.
 
 ### Recent updates
 
-As of `v0.4.0`, the main user-visible changes are:
+As of `v0.4.3`, the main user-visible changes are:
 
 - audit-driven robustness fixes: strict CLI boolean flags, no silent codec
   truncation, unique warning IDs, canonical run `endpoint_kind`
@@ -334,6 +347,8 @@ As of `v0.4.0`, the main user-visible changes are:
   boundaries across CLI, ABI, server, Mermaid, and dashboard views
 - `rt storage repair-outcomes` provides the explicit migration path for legacy
   historical stores that still contain `done + outcome=unset`
+- restoring a legacy pre-repair snapshot is supported, but strict commands
+  intentionally require rerunning `rt storage repair-outcomes` afterward
 
 `rt feature doctor` computes health at read time:
 
