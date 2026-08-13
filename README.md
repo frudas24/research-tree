@@ -329,8 +329,12 @@ instead of returning a misleading partial-clean report.
 
 ### Recent updates
 
-As of `v0.4.3`, the main user-visible changes are:
+As of `v0.4.4`, the main user-visible changes are:
 
+- `rt storage migrate` is transparent on legacy stores: historical
+  `done + outcome=unset` nodes survive json↔bin migration (run
+  `rt storage repair-outcomes` to close them), and legal higher-ID parent
+  edges are preserved
 - audit-driven robustness fixes: strict CLI boolean flags, no silent codec
   truncation, unique warning IDs, canonical run `endpoint_kind`
 - node history stays readable across storage-format migration

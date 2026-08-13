@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.4] - 2026-08-13
+
+### Fixed
+- `rt storage migrate` is now transparent on legacy stores: historical
+  `done + outcome=unset` nodes survive format migration instead of
+  hard-failing the command, so `rt storage repair-outcomes` remains the
+  documented follow-up.
+- `rt storage migrate` now accepts nodes that reference a parent with a
+  higher ID; parent-existence is validated after graph assembly so insertion
+  order (ascending node ID) cannot reject legal edges.
+
+### Tests
+- Added CLI and store-level regression tests covering transparent legacy
+  migration (json→bin and bin→json round trips) and higher-ID parent edges.
+
 ## [v0.4.3] - 2026-08-13
 
 ### Fixed
