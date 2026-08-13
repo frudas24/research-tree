@@ -1575,3 +1575,93 @@ func TestHistoryMixedFormatsAfterMigration(t *testing.T) {
 		t.Fatalf("history must include both formats: got %d entries, expected %d", len(history), jsonCount+binCount)
 	}
 }
+
+// TestMigrateStorageFormatTransparentOnLegacyDoneUnset verifies direct store
+// migration stays transparent on historical done+unset nodes: the format
+// changes must succeed without silently repairing or rejecting the legacy
+// payload, so repair-outcomes remains the explicit follow-up.
+func TestMigrateStorageFormatTransparentOnLegacyDoneUnset(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	legacy := &Node{Frontmatter: Frontmatter{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            1,
+		Title:         "legacy migrate",
+		Status:        StatusDone,
+		Outcome:       OutcomeUnset,
+		ClaimStatus:   ClaimProvisional,
+	}}
+	b, err := json.MarshalIndent(legacy, "", "  ")
+	mustNoErr(t, err)
+	mustNoErr(t, os.WriteFile(filepath.Join(s.nodesDir(), "0001.json"), append(b, '\n'), 0o644))
+	mustNoErr(t, s.writeNextID(2))
+
+	if _, err := s.QueryNodes(Filter{}); !errors.Is(err, ErrInvalidNode) {
+		t.Fatalf("strict query must reject legacy store before migration, got %v", err)
+	}
+
+	mustNoErr(t, s.MigrateStorageFormat(StorageBIN))
+	if s.StorageFormat() != StorageBIN {
+		t.Fatalf("format after migrate = %q, want %q", s.StorageFormat(), StorageBIN)
+	}
+	report, err := s.ScanLegacyDoneUnsetOutcomes()
+	mustNoErr(t, err)
+	if len(report.Issues) != 1 || report.Issues[0].ID != 1 {
+		t.Fatalf("legacy issue must survive json->bin migrate, got %+v", report)
+	}
+
+	mustNoErr(t, s.MigrateStorageFormat(StorageJSON))
+	if s.StorageFormat() != StorageJSON {
+		t.Fatalf("format after migrate back = %q, want %q", s.StorageFormat(), StorageJSON)
+	}
+	report, err = s.ScanLegacyDoneUnsetOutcomes()
+	mustNoErr(t, err)
+	if len(report.Issues) != 1 || report.Issues[0].ID != 1 {
+		t.Fatalf("legacy issue must survive bin->json migrate, got %+v", report)
+	}
+}
+
+// TestMigrateStorageFormatOrderIndependentParents verifies direct store
+// migration preserves legal edges even when a child references a higher-ID
+// parent. Migration inserts nodes in ascending ID order, so referential
+// integrity must be checked after assembly rather than during insertion.
+func TestMigrateStorageFormatOrderIndependentParents(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	child := &Node{Frontmatter: Frontmatter{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            1,
+		Title:         "child",
+		Kind:          NodeKindWork,
+		Status:        StatusActive,
+		ClaimStatus:   ClaimProvisional,
+		Parents:       []NodeID{3},
+	}}
+	parent := &Node{Frontmatter: Frontmatter{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            3,
+		Title:         "parent",
+		Kind:          NodeKindWork,
+		Status:        StatusActive,
+		ClaimStatus:   ClaimProvisional,
+	}}
+	for _, n := range []*Node{child, parent} {
+		b, err := json.MarshalIndent(n, "", "  ")
+		mustNoErr(t, err)
+		name := filepath.Join(s.nodesDir(), fmt.Sprintf("%04d.json", n.ID))
+		mustNoErr(t, os.WriteFile(name, append(b, '\n'), 0o644))
+	}
+	mustNoErr(t, s.writeNextID(4))
+
+	mustNoErr(t, s.MigrateStorageFormat(StorageBIN))
+	got, err := s.GetNode(1)
+	mustNoErr(t, err)
+	if len(got.Parents) != 1 || got.Parents[0] != 3 {
+		t.Fatalf("parents after json->bin migrate = %v, want [3]", got.Parents)
+	}
+
+	mustNoErr(t, s.MigrateStorageFormat(StorageJSON))
+	got, err = s.GetNode(1)
+	mustNoErr(t, err)
+	if len(got.Parents) != 1 || got.Parents[0] != 3 {
+		t.Fatalf("parents after roundtrip migrate = %v, want [3]", got.Parents)
+	}
+}

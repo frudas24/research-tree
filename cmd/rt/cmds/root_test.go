@@ -2,6 +2,7 @@ package cmds
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2229,5 +2230,129 @@ func TestCLIStorageRepairOutcomesRejectsInvalidMapping(t *testing.T) {
 		if _, err := runCLI(t, "--research-root", root, "storage", "repair-outcomes", "--set", bad); err == nil {
 			t.Fatalf("bad repair mapping %q must fail", bad)
 		}
+	}
+}
+
+// TestCLIStorageMigrateTransparentOnLegacyDoneUnset verifies storage migrate
+// completes transparently on a historical done+unset store instead of
+// hard-failing: the legacy nodes are preserved as-is across the format change,
+// so repair-outcomes remains the documented follow-up.
+func TestCLIStorageMigrateTransparentOnLegacyDoneUnset(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	if _, err := runCLI(t, "--research-root", root, "init", "--storage-format", "json"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	legacy := map[string]any{
+		"schema_version": 1,
+		"id":             1,
+		"title":          "legacy",
+		"status":         "done",
+		"claim_status":   "provisional",
+	}
+	b, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nodes", "0001.json"), append(b, '\n'), 0o644); err != nil {
+		t.Fatalf("write legacy node: %v", err)
+	}
+
+	// Strict commands must reject the store before repair.
+	if _, err := runCLI(t, "--research-root", root, "node", "list"); err == nil {
+		t.Fatalf("strict node list must fail on legacy done+unset store")
+	}
+
+	// The migration tool must still work transparently on the legacy store.
+	if _, err := runCLI(t, "--research-root", root, "storage", "migrate", "--to", "bin"); err != nil {
+		t.Fatalf("storage migrate must be transparent on legacy store: %v", err)
+	}
+
+	// The historical node must survive the migration untouched (still
+	// done+unset), so the repair path still sees it after migrating.
+	out, err := runCLI(t, "--research-root", root, "--json", "storage", "repair-outcomes")
+	if err != nil {
+		t.Fatalf("scan after migrate: %v", err)
+	}
+	var report map[string]any
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid json report: %v", err)
+	}
+	issues, ok := report["issues"].([]any)
+	if !ok || len(issues) != 1 {
+		t.Fatalf("expected one legacy issue after migrate, got %v", report["issues"])
+	}
+
+	// Repair still works post-migration.
+	if _, err := runCLI(t, "--research-root", root, "storage", "repair-outcomes", "--set", "1=inconclusive"); err != nil {
+		t.Fatalf("apply repair-outcomes after migrate: %v", err)
+	}
+	out, err = runCLI(t, "--research-root", root, "--json", "node", "show", "1")
+	if err != nil {
+		t.Fatalf("show repaired node: %v", err)
+	}
+	report = map[string]any{}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("invalid repaired node json: %v", err)
+	}
+	if report["outcome"] != "inconclusive" {
+		t.Fatalf("repaired outcome = %v, want inconclusive", report["outcome"])
+	}
+}
+
+// TestCLIStorageMigrateOrderIndependentParents verifies migrate succeeds on a
+// store where a node legally references a parent with a higher ID (nodes are
+// inserted in ascending ID order, so the parent-existence invariant must be
+// checked globally after insertion, not during incremental inserts).
+func TestCLIStorageMigrateOrderIndependentParents(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "research")
+	if _, err := runCLI(t, "--research-root", root, "init", "--storage-format", "json"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	child := map[string]any{
+		"schema_version": 1,
+		"id":             1,
+		"title":          "child referencing higher-id parent",
+		"status":         "active",
+		"claim_status":   "provisional",
+		"kind":           "work",
+		"parents":        []int{3},
+	}
+	parent := map[string]any{
+		"schema_version": 1,
+		"id":             3,
+		"title":          "higher-id parent",
+		"status":         "active",
+		"claim_status":   "provisional",
+		"kind":           "work",
+	}
+	for id, n := range map[int]map[string]any{1: child, 3: parent} {
+		b, err := json.MarshalIndent(n, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal node %d: %v", id, err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "nodes", fmt.Sprintf("%04d.json", id)), append(b, '\n'), 0o644); err != nil {
+			t.Fatalf("write node %d: %v", id, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "next_id"), []byte("4\n"), 0o644); err != nil {
+		t.Fatalf("write next_id: %v", err)
+	}
+
+	if _, err := runCLI(t, "--research-root", root, "storage", "migrate", "--to", "bin"); err != nil {
+		t.Fatalf("storage migrate with higher-id parent must succeed: %v", err)
+	}
+
+	// The migrated bin store must keep the parent edge intact.
+	out, err := runCLI(t, "--research-root", root, "--json", "node", "show", "1")
+	if err != nil {
+		t.Fatalf("show child: %v", err)
+	}
+	var node map[string]any
+	if err := json.Unmarshal([]byte(out), &node); err != nil {
+		t.Fatalf("invalid child json: %v", err)
+	}
+	parents, ok := node["parents"].([]any)
+	if !ok || len(parents) != 1 || parents[0].(float64) != 3 {
+		t.Fatalf("parents = %v, want [3]", node["parents"])
 	}
 }

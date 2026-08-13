@@ -142,7 +142,10 @@ func (s *Store) migrateStorageFormat(target StorageFormat) error {
 		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
 			return err
 		}
-		nodes, err := s.loadAllNodes()
+		// Migrate must be transparent on historical stores: legacy done+unset
+		// nodes are preserved as-is (repair-outcomes remains the documented
+		// follow-up), so load and insert with the legacy-tolerant paths.
+		nodes, err := s.loadAllNodesAllowLegacyDoneUnset()
 		if err != nil {
 			return err
 		}
@@ -150,9 +153,20 @@ func (s *Store) migrateStorageFormat(target StorageFormat) error {
 		s.format = target
 		g := NewGraph()
 		for _, n := range nodes {
-			if err := g.AddNode(n); err != nil {
+			// A node may legally reference a parent with a higher ID, and
+			// nodes are inserted in ascending ID order, so defer the
+			// parent-existence check until the whole graph is assembled.
+			if err := g.addNodeAssumeValid(n, false); err != nil {
 				s.format = old
 				return err
+			}
+		}
+		for _, n := range nodes {
+			for _, pid := range n.Parents {
+				if _, ok := g.Nodes[pid]; !ok {
+					s.format = old
+					return fmt.Errorf("%w: parent %d not found", ErrInvalidNode, pid)
+				}
 			}
 		}
 		if err := s.createSnapshot("migrate_pre"); err != nil {
