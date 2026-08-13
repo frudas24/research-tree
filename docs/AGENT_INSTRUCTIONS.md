@@ -18,6 +18,37 @@ rt resource list --free --json
 rt resource report --json
 ```
 
+## CLI operating pattern for agents
+
+Use `rt` as the authoritative operational interface unless you are explicitly
+working in the Go ABI.
+
+Recommended sequence:
+
+```bash
+# inspect
+rt status
+rt node list --status active
+rt node show <id>
+
+# mutate
+rt node create --title "..."
+rt node edit <id> --append-body "..."
+rt node logrun <id> --cmd "..."
+
+# close
+rt node close <id> --outcome success
+```
+
+Guidelines:
+
+- inspect before mutating: `status`, `list`, `show`, `ancestors`, `descendants`
+- prefer `--json` for machine consumption or agent handoff
+- claim hardware with `resource claim` before `node logrun`
+- use `node close` only with a terminal outcome
+- after restoring a legacy snapshot containing `done+unset`, run
+  `rt storage repair-outcomes` before relying on strict commands again
+
 ## Workflow for migrating research logs
 
 ### Phase 1: Initialize

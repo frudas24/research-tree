@@ -48,7 +48,38 @@ If `./build/rt` is missing:
 go build -o build/rt ./cmd/rt
 ```
 
-## 4) Fast commands to inspect health
+## 4) CLI usage contract for agents
+
+Agents should use the `rt` CLI as the authoritative interface unless they are
+explicitly working inside the Go ABI.
+
+Default operating pattern:
+
+```bash
+# 1. Inspect before mutating
+rt status
+rt node list --status active
+rt node show <id>
+
+# 2. Mutate with explicit commands
+rt node create --title "..."
+rt node edit <id> --append-body "..."
+rt node logrun <id> --cmd "..."
+
+# 3. Close only with terminal outcome
+rt node close <id> --outcome success
+```
+
+Rules:
+
+- prefer `status`, `list`, `show`, `ancestors`, and `descendants` before editing
+- prefer `--json` when another tool or agent will consume the result
+- use `resource claim` before `node logrun` when hardware is involved
+- use `node edit` for state changes and `node close` for terminal closure
+- after restoring a legacy snapshot that contains `done+unset`, rerun
+  `rt storage repair-outcomes` before trusting strict commands again
+
+## 5) Fast commands to inspect health
 
 ```bash
 rt status
@@ -73,7 +104,7 @@ rt node descendants 42 --json
 rt node show 42 --json
 ```
 
-## 5) Required workflow for experiments
+## 6) Required workflow for experiments
 
 ### A. Create or attach node
 
@@ -124,7 +155,7 @@ rt node close <id> --outcome success --append-body "Key metric: +3.2% t/s"
 When a node moves to `done` or `paused`, all active resource leases for that node are released automatically.
 If a resource operation fails with `resource busy`, the error names the blocking nodes and holders; release the lease by resolving those nodes, not by bypassing the lease model.
 
-## 6) Parenting and branch discipline
+## 7) Parenting and branch discipline
 
 - Parent must answer: **what prior claim, run, or decision does this depend on?**
 - Avoid attaching new execution work to broad executive/root nodes when a recent technical parent exists.
@@ -145,7 +176,7 @@ rt node edit <id> --rm-parents <id>
 
 Cycles are rejected automatically.
 
-## 7) Validation gate before claiming “done”
+## 8) Validation gate before claiming “done”
 
 For code changes:
 
@@ -167,7 +198,7 @@ Before closing a node, ask:
 - Did a past objection get resolved, or merely disappear from short-term context?
 - Is the claim scoped tightly enough that another agent cannot overgeneralize it later?
 
-## 8) Compact context handoff pattern
+## 9) Compact context handoff pattern
 
 For another agent, keep the handoff narrow and explicit:
 
@@ -189,7 +220,7 @@ rt resource list --free --json
 rt resource report --json
 ```
 
-## 9) Current semantic model
+## 10) Current semantic model
 
 These are the current first-class axes. Do not invent new meanings in free text
 when one of these already applies.
@@ -214,7 +245,7 @@ Interpretation:
 - `claim_status=superseded`: a conclusion was replaced by a later one
 - resource release depends on node lifecycle, not experiment outcome
 
-## 10) Known current limits
+## 11) Known current limits
 
 Current CLI and model still do **not yet** have a separate top-level axis for:
 
