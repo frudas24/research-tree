@@ -72,11 +72,14 @@ func (s *Store) repairLegacyDoneUnsetOutcomes(issues []LegacyOutcomeIssue, fixes
 	report := &RepairLegacyOutcomeReport{Issues: issues}
 	err := s.withLock("repair_legacy_outcomes", func() error {
 		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
-			return err
+			return fmt.Errorf("repair legacy outcomes: snapshot catalog: %w", err)
+		}
+		if err := s.auditStoreAllowLegacyDoneUnset(); err != nil {
+			return fmt.Errorf("repair legacy outcomes: audit store: %w", err)
 		}
 		nodes, err := s.loadAllNodesAllowLegacyDoneUnset()
 		if err != nil {
-			return err
+			return fmt.Errorf("repair legacy outcomes: load nodes: %w", err)
 		}
 		g := NewGraph()
 		for _, n := range nodes {
@@ -87,18 +90,18 @@ func (s *Store) repairLegacyDoneUnsetOutcomes(issues []LegacyOutcomeIssue, fixes
 			if err := ValidateNode(n); err != nil {
 				return fmt.Errorf("legacy outcome repair for node %d: %w", n.ID, err)
 			}
-			if err := g.addNode(n, false); err != nil {
+			if err := g.addNodeAssumeValid(n, false); err != nil {
 				return err
 			}
 		}
 		if err := validateGraphReferentialIntegrity(g); err != nil {
-			return err
+			return fmt.Errorf("repair legacy outcomes: graph integrity: %w", err)
 		}
 		if err := s.createSnapshot("repair_legacy_outcomes_pre"); err != nil {
-			return err
+			return fmt.Errorf("repair legacy outcomes: pre snapshot: %w", err)
 		}
 		if err := s.persistGraph(g); err != nil {
-			return err
+			return fmt.Errorf("repair legacy outcomes: persist graph: %w", err)
 		}
 		s.bestEffortSnapshot("repair_legacy_outcomes_post")
 		sort.Slice(report.Repaired, func(i, j int) bool { return report.Repaired[i] < report.Repaired[j] })

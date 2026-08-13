@@ -65,9 +65,10 @@ type UmbrellaPressureEntry struct {
 }
 
 // StatusSummary is the stable dashboard contract for CLI and ABI consumers.
-// Existing keys (total/active/done/paused/warnings/agent) are kept for compatibility.
-// active/done/paused and hotspots contain work nodes only; umbrellas are reported
-// separately so programs never distort actionable-work metrics.
+// Existing keys (total/active/done/paused/warnings/agent) are kept for
+// compatibility and therefore still contain all nodes, including umbrellas.
+// Work-only breakdowns live in WorkStatusCounts and Hotspots; umbrella-specific
+// projections live in Umbrella* fields.
 type StatusSummary struct {
 	Total                int                            `json:"total"`
 	Active               []NodeSummary                  `json:"active"`

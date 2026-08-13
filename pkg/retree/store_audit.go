@@ -8,7 +8,28 @@ import (
 // auditStore validates that all persisted store sidecars are structurally and
 // semantically consistent with the node set before a caller trusts the store.
 func (s *Store) auditStore() error {
-	g, err := s.loadGraph()
+	return s.auditStoreWithOptions(false)
+}
+
+// auditStoreAllowLegacyDoneUnset validates the entire persisted store while
+// tolerating only the historical done+unset node pattern. All sidecars and
+// cross-file references remain strict.
+func (s *Store) auditStoreAllowLegacyDoneUnset() error {
+	return s.auditStoreWithOptions(true)
+}
+
+// auditStoreWithOptions validates nodes plus every persisted sidecar, with an
+// optional tolerance only for the historical done+unset node pattern.
+func (s *Store) auditStoreWithOptions(allowLegacyDoneUnset bool) error {
+	var (
+		g   *Graph
+		err error
+	)
+	if allowLegacyDoneUnset {
+		g, err = s.loadGraphAllowLegacyDoneUnset()
+	} else {
+		g, err = s.loadGraph()
+	}
 	if err != nil {
 		return err
 	}

@@ -291,7 +291,7 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 		if err != nil {
 			return err
 		}
-		if err := staged.auditStore(); err != nil {
+		if err := staged.auditStoreAllowLegacyDoneUnset(); err != nil {
 			return err
 		}
 		if err := renamePath(s.rootPath, rollbackDir); err != nil {

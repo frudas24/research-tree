@@ -43,6 +43,27 @@ func (s *Store) loadGraph() (*Graph, error) {
 	return g, nil
 }
 
+// loadGraphAllowLegacyDoneUnset loads the full graph while tolerating the
+// historical done+unset pattern so repair and restore flows can validate
+// legacy stores without weakening any other invariant.
+func (s *Store) loadGraphAllowLegacyDoneUnset() (*Graph, error) {
+	nodes, err := s.loadAllNodesAllowLegacyDoneUnset()
+	if err != nil {
+		return nil, err
+	}
+	g := NewGraph()
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
+	for _, n := range nodes {
+		if err := g.addNodeAssumeValid(n, false); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateGraphReferentialIntegrity(g); err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
 // loadAllNodes loads all nodes from disk, dispatching by storage format.
 func (s *Store) loadAllNodes() ([]*Node, error) {
 	if s.format == StorageJSON {

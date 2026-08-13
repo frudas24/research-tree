@@ -26,6 +26,16 @@ func (g *Graph) AddNode(n *Node) error { return g.addNode(n, true) }
 
 // addNode inserts a new node, optionally checking that parents exist.
 func (g *Graph) addNode(n *Node, checkParentExists bool) error {
+	if err := ValidateNode(n); err != nil {
+		return err
+	}
+	return g.addNodeAssumeValid(n, checkParentExists)
+}
+
+// addNodeAssumeValid inserts a node that has already been validated by the
+// caller, while still enforcing graph-level invariants such as uniqueness and
+// acyclicity.
+func (g *Graph) addNodeAssumeValid(n *Node, checkParentExists bool) error {
 	if g == nil {
 		return fmt.Errorf("%w: nil graph", ErrInvalidNode)
 	}
@@ -37,9 +47,6 @@ func (g *Graph) addNode(n *Node, checkParentExists bool) error {
 	}
 	if _, ok := g.Nodes[n.ID]; ok {
 		return fmt.Errorf("%w: %d", ErrDuplicateID, n.ID)
-	}
-	if err := ValidateNode(n); err != nil {
-		return err
 	}
 	for _, pid := range n.Parents {
 		if _, ok := g.Nodes[pid]; !ok && checkParentExists {
