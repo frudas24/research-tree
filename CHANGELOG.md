@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-09-04
+
 ### Added
 - Node updates now expose optimistic revision conflicts through `ErrConflict`;
   additive helpers mutate the latest locked state so concurrent agents cannot
@@ -228,7 +230,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     snapshots with retention.
   - C FFI bridge (`libretree.so` / Windows DLL) and GoReleaser packaging.
 
-[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/frudas24/research-tree/compare/v0.4.4...v0.5.0
 [v0.4.4]: https://github.com/frudas24/research-tree/compare/v0.4.3...v0.4.4
 [v0.4.3]: https://github.com/frudas24/research-tree/compare/v0.4.2...v0.4.3
 [v0.4.2]: https://github.com/frudas24/research-tree/compare/v0.4.1...v0.4.2
