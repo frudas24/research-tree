@@ -3,8 +3,15 @@
 package retree
 
 import (
+	"errors"
 	"os"
 	"syscall"
+)
+
+const (
+	windowsErrorAccessDenied     = syscall.Errno(5)
+	windowsErrorSharingViolation = syscall.Errno(32)
+	windowsErrorDeletePending    = syscall.Errno(303)
 )
 
 // openBinaryRead opens a binary-store file without preventing another process
@@ -27,4 +34,12 @@ func openBinaryRead(path string) (*os.File, error) {
 		return nil, &os.PathError{Op: "open", Path: path, Err: err}
 	}
 	return os.NewFile(uintptr(handle), path), nil
+}
+
+// isBinaryMarkerTransitionError identifies Windows errors observed while the
+// writer atomically replaces or removes the dirty marker.
+func isBinaryMarkerTransitionError(err error) bool {
+	return errors.Is(err, windowsErrorAccessDenied) ||
+		errors.Is(err, windowsErrorSharingViolation) ||
+		errors.Is(err, windowsErrorDeletePending)
 }

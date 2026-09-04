@@ -317,42 +317,50 @@ func (s *Store) writeBinaryGeneration(token string) error {
 // close the writer-started-between-checks race.
 func (s *Store) beginStableBinaryRead(deadline time.Time) (string, error) {
 	for {
-		if _, err := os.Stat(s.binaryDirtyPath()); err == nil {
+		dirty, err := binaryPublicationInProgress(s.binaryDirtyPath())
+		if err != nil {
+			return "", err
+		}
+		if dirty {
 			if time.Now().After(deadline) {
 				return "", fmt.Errorf("binary node store has an incomplete publication marker; reopen the store to recover")
 			}
 			time.Sleep(20 * time.Millisecond)
 			continue
-		} else if !os.IsNotExist(err) {
-			return "", err
 		}
 		generation, err := s.readBinaryGeneration()
 		if err != nil {
 			return "", err
 		}
-		if _, err := os.Stat(s.binaryDirtyPath()); os.IsNotExist(err) {
-			return generation, nil
-		} else if err != nil {
+		dirty, err = binaryPublicationInProgress(s.binaryDirtyPath())
+		if err != nil {
 			return "", err
+		}
+		if !dirty {
+			return generation, nil
 		}
 	}
 }
 
 // binaryReadStillStable validates the seqlock after an IDX/BIN read.
 func (s *Store) binaryReadStillStable(generation string) (bool, error) {
-	if _, err := os.Stat(s.binaryDirtyPath()); err == nil {
-		return false, nil
-	} else if !os.IsNotExist(err) {
+	dirty, err := binaryPublicationInProgress(s.binaryDirtyPath())
+	if err != nil {
 		return false, err
+	}
+	if dirty {
+		return false, nil
 	}
 	current, err := s.readBinaryGeneration()
 	if err != nil {
 		return false, err
 	}
-	if _, err := os.Stat(s.binaryDirtyPath()); err == nil {
-		return false, nil
-	} else if !os.IsNotExist(err) {
+	dirty, err = binaryPublicationInProgress(s.binaryDirtyPath())
+	if err != nil {
 		return false, err
+	}
+	if dirty {
+		return false, nil
 	}
 	return current == generation, nil
 }

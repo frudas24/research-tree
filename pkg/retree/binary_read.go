@@ -2,6 +2,7 @@ package retree
 
 import (
 	"io"
+	"os"
 )
 
 // readBinaryFile reads a replaceable binary-store file through the
@@ -38,4 +39,21 @@ func binaryFileSize(path string) (int64, error) {
 		return 0, closeErr
 	}
 	return info.Size(), nil
+}
+
+// binaryPublicationInProgress checks the dirty marker without opening a
+// Windows handle that can block its replacement or removal.
+func binaryPublicationInProgress(path string) (bool, error) {
+	f, err := openBinaryRead(path)
+	if err == nil {
+		_ = f.Close()
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if isBinaryMarkerTransitionError(err) {
+		return true, nil
+	}
+	return false, err
 }
