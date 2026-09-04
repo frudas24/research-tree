@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Node updates now expose optimistic revision conflicts through `ErrConflict`;
+  additive helpers mutate the latest locked state so concurrent agents cannot
+  silently overwrite each other's tags, parents, or artifacts.
+- Binary stores use `.nodes.dirty` plus a persistent `.nodes.generation`
+  seqlock. Lock-free readers retry overlapping publications, while interrupted
+  BIN/IDX pairs are rebuilt deterministically from `nodes.bin`.
+- Embedded artifact publication is journaled and reconciled on `Open`, removing
+  payloads left orphaned by a crash between file and node publication.
+- Fail-closed variants `NextIDChecked`, `ResolveAgentNameChecked`, and
+  `FeatureExistsChecked` preserve storage errors for core and FFI callers.
+
+### Changed
+- JSON persistence rejects unknown fields in schema-governed node, metadata,
+  feature, resource, lease, warning, event, edge, and relation payloads.
+- `Open` performs write-capable migrations and reconciliation under the store
+  lock, including binary recovery, derived-index repair, interrupted embeds,
+  and stale leases held by inactive nodes.
+- `edges.jsonl` and `relations.jsonl` are audited as exact projections of
+  authoritative node state. Public regenerators now run under the store lock.
+- A node reaching `done` or `paused` releases resource leases as coordinated
+  state before the authoritative node commit; lifecycle events remain
+  best-effort historical effects.
+
+### Fixed
+- Force deletion clears both `Parents` and `PrimaryParent` on surviving
+  children and publishes rewritten children before deleting the parent in JSON
+  mode.
+- Node history is written only after candidate validation, uses collision-safe
+  nanosecond names, and is created exclusively instead of overwriting entries.
+- Late derived-index failures no longer report the authoritative node mutation
+  as uncommitted; dirty projections are repaired on the next safe boundary.
+- `Feature.CurrentNode` must belong to the feature, preventing explicit current
+  pointers to unrelated nodes.
+- Snapshot restore validates and reconciles staging before installing the live
+  lock owner token, avoiding self-deadlock during restore.
+- Embedded artifacts use unique staging files and never truncate an existing
+  payload with the same basename.
+
+### Tests
+- Added adversarial coverage for concurrent read-modify-write operations,
+  stale revisions, forced orphaning, exact derived indexes, interrupted binary
+  publication, binary generation overlap, artifact reconciliation, strict JSON,
+  and feature-current membership.
+- CI and release workflows now run the complete test suite, race detector,
+  commentlint, and pinned `golangci-lint v2.4.0` before publication.
+
 ## [v0.4.4] - 2026-08-13
 
 ### Fixed
@@ -181,7 +228,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     snapshots with retention.
   - C FFI bridge (`libretree.so` / Windows DLL) and GoReleaser packaging.
 
-[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.4.4...HEAD
+[v0.4.4]: https://github.com/frudas24/research-tree/compare/v0.4.3...v0.4.4
 [v0.4.3]: https://github.com/frudas24/research-tree/compare/v0.4.2...v0.4.3
 [v0.4.2]: https://github.com/frudas24/research-tree/compare/v0.4.1...v0.4.2
 [v0.4.1]: https://github.com/frudas24/research-tree/compare/v0.4.0...v0.4.1
