@@ -27,6 +27,17 @@ jobs:
       - name: Install MinGW cross-compiler
         run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-mingw-w64-x86-64
 
+      - name: Format check
+        run: |
+          unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
+          test -z "$unformatted" || { printf 'Unformatted Go files:\n%s\n' "$unformatted"; exit 1; }
+
+      - name: Module hygiene
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go mod verify
+
       - name: Vet
         run: go vet ./...
 

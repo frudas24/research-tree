@@ -31,6 +31,17 @@ jobs:
           go-version: ${{ matrix.go-version }}
           cache: true
 
+      - name: Format check
+        run: |
+          unformatted="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
+          test -z "$unformatted" || { printf 'Unformatted Go files:\n%s\n' "$unformatted"; exit 1; }
+
+      - name: Module hygiene
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go mod verify
+
       - name: Vet
         run: go vet ./...
 
