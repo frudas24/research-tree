@@ -1,10 +1,10 @@
 /**
- * bun:ffi bindings to libretree.so.
+ * bun:ffi bindings to the platform Research Tree shared library.
  *
  * Research Tree — C ABI bridge for TypeScript consumption.
  *
- * Build the shared library first:
- *   make libretree.so
+ * Build the shared library first with `make libretree.so` on Linux or
+ * `make dll` for Windows amd64.
  *
  * All complex types cross the boundary as JSON. The caller must
  * call retree_free_string on every returned non-null char*.
@@ -14,27 +14,16 @@
  */
 
 import { dlopen, FFIType, ptr } from "bun:ffi";
-import { existsSync } from "fs";
-import { join } from "path";
+import { resolveRetreeLibraryPath } from "./library_path";
 
 // ── Load shared library ─────────────────────────────────────
 
-function resolveLibPath(): string {
-  const candidates = [
-    join(import.meta.dirname, "..", "..", "build", "libretree.so"),
-    join(import.meta.dirname, "..", "..", "dist", "libretree.so"),
-  ];
-  for (const c of candidates) {
-    if (existsSync(c)) {
-      return c;
-    }
-  }
-  throw new Error(
-    "libretree.so not found. Build it: CGO_ENABLED=1 go build -buildmode=c-shared -o build/libretree.so ./cmd/rt-bridge/",
-  );
-}
-
-const libPath = resolveLibPath();
+const libPath = resolveRetreeLibraryPath({
+  moduleDir: import.meta.dirname,
+  platform: process.platform,
+  arch: process.arch,
+  override: process.env.RETREE_LIBRARY_PATH,
+});
 
 const lib = dlopen(libPath, {
   // ── Lifecycle ──────────────────────────────────────────────

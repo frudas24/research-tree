@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["ffi.ts"]
+  "include": ["ffi.ts", "library_path.ts"]
 }
