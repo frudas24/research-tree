@@ -2,6 +2,7 @@ package retree
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -225,6 +226,88 @@ func TestBinaryIndexPublishFailureIsRecoverableCommit(t *testing.T) {
 	}
 }
 
+// TestBinaryGenerationFailureRecoversImmediately verifies a final generation
+// write failure does not leave the current Store instance blocked by dirty state.
+func TestBinaryGenerationFailureRecoversImmediately(t *testing.T) {
+	s := mustInit(t, StorageBIN)
+	first := &Node{Frontmatter: Frontmatter{Title: "first"}}
+	mustNoErr(t, s.CreateNode(first))
+	second := &Node{Frontmatter: Frontmatter{ID: 2, Title: "second"}}
+	ApplyNodeDefaults(second, nowUTC())
+
+	calls := 0
+	err := s.writeAllNodesBINWithGenerationWriter([]*Node{first, second}, func(string) error {
+		calls++
+		return errors.New("injected generation failure")
+	})
+	if err != nil {
+		t.Fatalf("recoverable generation failure returned error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("unexpected injected generation writes: %d", calls)
+	}
+	if _, err := os.Stat(s.binaryDirtyPath()); !os.IsNotExist(err) {
+		t.Fatalf("dirty marker survived immediate recovery: %v", err)
+	}
+	got, err := s.GetNode(second.ID)
+	mustNoErr(t, err)
+	if got.Title != second.Title {
+		t.Fatalf("generation recovery returned wrong node: %+v", got)
+	}
+}
+
+// TestConcurrentBinaryReadersObserveCompleteGenerations stress-tests lock-free
+// reads while a writer repeatedly publishes complete BIN/IDX generations.
+func TestConcurrentBinaryReadersObserveCompleteGenerations(t *testing.T) {
+	s := mustInit(t, StorageBIN)
+	current := &Node{Frontmatter: Frontmatter{Title: "stress"}}
+	mustNoErr(t, s.CreateNode(current))
+	nodeID := current.ID
+
+	const readers = 8
+	stop := make(chan struct{})
+	errCh := make(chan error, readers)
+	var wg sync.WaitGroup
+	for range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				node, err := s.GetNode(nodeID)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if node.ID != nodeID || node.Title != "stress" {
+					errCh <- fmt.Errorf("mixed binary generation: %+v", node)
+					return
+				}
+			}
+		}()
+	}
+	for i := 0; i < 100; i++ {
+		next := CloneNode(current)
+		next.Body = fmt.Sprintf("generation-%d", i)
+		next.Revision++
+		next.Modified = nowUTC()
+		mustNoErr(t, s.withLock("binary_stress", func() error {
+			return s.writeAllNodesBIN([]*Node{next})
+		}))
+		current = next
+	}
+	close(stop)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatalf("concurrent binary read: %v", err)
+	}
+}
+
 // TestFeatureCurrentNodeMustBeLinked rejects an existing but unrelated node.
 func TestFeatureCurrentNodeMustBeLinked(t *testing.T) {
 	s := mustInit(t, StorageJSON)
@@ -259,5 +342,36 @@ func TestOpenReconcilesInterruptedEmbed(t *testing.T) {
 	}
 	if _, err := os.Stat(journal); !os.IsNotExist(err) {
 		t.Fatalf("embed journal survived reconciliation: %v", err)
+	}
+}
+
+// TestEmbedJournalIsAtomicAndOpenRemovesStaging verifies only complete
+// journals become visible and crash-left payload staging files are reclaimed.
+func TestEmbedJournalIsAtomicAndOpenRemovesStaging(t *testing.T) {
+	s := mustInit(t, StorageJSON)
+	n := &Node{Frontmatter: Frontmatter{Title: "embed staging"}}
+	mustNoErr(t, s.CreateNode(n))
+	dir := filepath.Join(s.artifactsDir(), "0001")
+	mustNoErr(t, os.MkdirAll(dir, 0o755))
+	payloadTmp := filepath.Join(dir, ".embed-orphan.tmp")
+	mustNoErr(t, os.WriteFile(payloadTmp, []byte("partial"), 0o644))
+	journalTmp := filepath.Join(s.rootPath, embedTransactionPrefix+"orphan.json.tmp")
+	mustNoErr(t, os.WriteFile(journalTmp, []byte("{"), 0o644))
+
+	journal, err := s.writeEmbedTransaction(embedTransaction{NodeID: n.ID, ArtifactPath: "artifacts/0001/final.bin"})
+	mustNoErr(t, err)
+	b, err := os.ReadFile(journal)
+	mustNoErr(t, err)
+	var txn embedTransaction
+	if err := decodeJSONStrict(b, &txn); err != nil {
+		t.Fatalf("published journal is incomplete: %v", err)
+	}
+
+	_, err = Open(s.rootPath)
+	mustNoErr(t, err)
+	for _, path := range []string{payloadTmp, journalTmp, journal} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("staging or journal file survived reconciliation at %s: %v", path, err)
+		}
 	}
 }

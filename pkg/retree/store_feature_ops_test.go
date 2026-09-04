@@ -1,6 +1,8 @@
 package retree
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,5 +57,41 @@ func TestCreateNodeWithFeatureRollsBackOnPersistFailure(t *testing.T) {
 	mustNoErr(t, err)
 	if len(features) != 0 {
 		t.Fatalf("expected feature rollback, got %+v", features)
+	}
+}
+
+// TestRollbackCreatedPrimaryStateAcceptsLateBinaryFailure verifies rollback
+// continues restoring auxiliary state after its BIN mutation has committed.
+func TestRollbackCreatedPrimaryStateAcceptsLateBinaryFailure(t *testing.T) {
+	s := mustInit(t, StorageBIN)
+	first := &Node{Frontmatter: Frontmatter{Title: "first"}}
+	second := &Node{Frontmatter: Frontmatter{Title: "second", Parents: []NodeID{1}}}
+	mustNoErr(t, s.CreateNode(first))
+	second.Parents = []NodeID{first.ID}
+
+	edges, err := captureFileSnapshot(s.edgesPath())
+	mustNoErr(t, err)
+	relations, err := captureFileSnapshot(s.relationsPath())
+	mustNoErr(t, err)
+	previousNext, err := s.readNextID()
+	mustNoErr(t, err)
+	mustNoErr(t, s.CreateNode(second))
+
+	writeThenFailDerived := func(nodes []*Node) error {
+		if err := s.writeAllNodesBIN(nodes); err != nil {
+			return err
+		}
+		return fmt.Errorf("%w: injected after binary rollback commit", ErrDerivedState)
+	}
+	if err := s.rollbackCreatedPrimaryStateWithBINWriter(previousNext, second.ID, edges, relations, writeThenFailDerived); err != nil {
+		t.Fatalf("committed binary rollback reported failure: %v", err)
+	}
+	if _, err := s.GetNode(second.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("rolled-back node remains visible: %v", err)
+	}
+	next, err := s.readNextID()
+	mustNoErr(t, err)
+	if next != previousNext {
+		t.Fatalf("next_id not restored: got %d want %d", next, previousNext)
 	}
 }

@@ -190,3 +190,46 @@ func TestRepairLegacyDoneUnsetPreSnapshotRestores(t *testing.T) {
 		t.Fatalf("restored snapshot must recover legacy issue, got %+v", got)
 	}
 }
+
+// TestRepairLegacyDoneUnsetAcceptsLateDerivedFailure verifies a repaired node
+// is reported as committed when only a rebuildable projection fails afterward.
+func TestRepairLegacyDoneUnsetAcceptsLateDerivedFailure(t *testing.T) {
+	s := kindStore(t)
+	legacy := &Node{Frontmatter: Frontmatter{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            1,
+		Title:         "legacy derived failure",
+		Status:        StatusDone,
+		Outcome:       OutcomeUnset,
+		ClaimStatus:   ClaimProvisional,
+	}}
+	b, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(s.nodesDir(), "0001.json"), append(b, '\n'), 0o644); err != nil {
+		t.Fatalf("write legacy node: %v", err)
+	}
+
+	relationsTmp := s.relationsPath() + ".tmp"
+	if err := os.Mkdir(relationsTmp, 0o755); err != nil {
+		t.Fatalf("block relation publication: %v", err)
+	}
+	report, err := s.RepairLegacyDoneUnsetOutcomes(map[NodeID]Outcome{1: OutcomeSuccess})
+	if err != nil {
+		t.Fatalf("late derived failure must not report repair failure: %v", err)
+	}
+	if len(report.Repaired) != 1 || report.Repaired[0] != 1 {
+		t.Fatalf("unexpected repair report: %+v", report)
+	}
+	if err := os.RemoveAll(relationsTmp); err != nil {
+		t.Fatalf("remove relation publication block: %v", err)
+	}
+	node, err := s.GetNode(1)
+	if err != nil {
+		t.Fatalf("read repaired node: %v", err)
+	}
+	if node.Outcome != OutcomeSuccess {
+		t.Fatalf("authoritative repair did not commit: %s", node.Outcome)
+	}
+}

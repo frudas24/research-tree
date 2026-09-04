@@ -112,6 +112,12 @@ func restoreFileSnapshot(path string, snap fileSnapshot) error {
 // rollbackCreatedPrimaryState removes the just-created node from the primary
 // node store and restores next_id without depending on sidecar regeneration.
 func (s *Store) rollbackCreatedPrimaryState(previousNext NodeID, createdID NodeID, edgeSnapshot fileSnapshot, relationSnapshot fileSnapshot) error {
+	return s.rollbackCreatedPrimaryStateWithBINWriter(previousNext, createdID, edgeSnapshot, relationSnapshot, s.writeAllNodesBIN)
+}
+
+// rollbackCreatedPrimaryStateWithBINWriter restores primary state while
+// permitting deterministic fault injection around binary publication.
+func (s *Store) rollbackCreatedPrimaryStateWithBINWriter(previousNext NodeID, createdID NodeID, edgeSnapshot fileSnapshot, relationSnapshot fileSnapshot, writeBIN func([]*Node) error) error {
 	nodes, err := s.loadAllNodes()
 	if err != nil {
 		return err
@@ -128,7 +134,7 @@ func (s *Store) rollbackCreatedPrimaryState(previousNext NodeID, createdID NodeI
 			return err
 		}
 	} else {
-		if err := s.writeAllNodesBIN(filtered); err != nil {
+		if err := writeBIN(filtered); !authoritativeCommitSucceeded(err) {
 			return err
 		}
 	}

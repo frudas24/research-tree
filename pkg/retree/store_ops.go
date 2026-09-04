@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-const embedTransactionPrefix = ".embed-transaction-"
+const (
+	embedStagingPrefix     = ".embed-"
+	embedStagingSuffix     = ".tmp"
+	embedTransactionPrefix = ".embed-transaction-"
+)
 
 // embedTransaction journals one payload-to-node publication in progress.
 type embedTransaction struct {
@@ -377,7 +381,7 @@ func (s *Store) embedArtifact(id NodeID, localPath string, description string) e
 		} else if !os.IsNotExist(err) {
 			return err
 		}
-		tmp, err := os.CreateTemp(dstDir, ".embed-*.tmp")
+		tmp, err := os.CreateTemp(dstDir, embedStagingPrefix+"*"+embedStagingSuffix)
 		if err != nil {
 			return err
 		}
@@ -467,9 +471,34 @@ func (s *Store) writeEmbedTransaction(txn embedTransaction) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(s.rootPath, embedTransactionPrefix+token+".json")
-	if err := os.WriteFile(path, append(b, '\n'), 0o644); err != nil {
+	tmp, err := os.CreateTemp(s.rootPath, embedTransactionPrefix+"*.json.tmp")
+	if err != nil {
 		return "", err
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0o644); err != nil {
+		return "", err
+	}
+	if _, err := tmp.Write(append(b, '\n')); err != nil {
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return "", err
+	}
+	cleanup = false
 	return path, nil
 }
 
@@ -477,11 +506,20 @@ func (s *Store) writeEmbedTransaction(txn embedTransaction) (string, error) {
 // interrupted embed, or only the journal when node metadata already committed.
 // The caller must hold the store lock.
 func (s *Store) reconcileArtifactTransactionsLocked(g *Graph) error {
+	if err := s.cleanupArtifactStagingFilesLocked(); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(s.rootPath)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), embedTransactionPrefix) && strings.HasSuffix(entry.Name(), ".json.tmp") {
+			if err := os.Remove(filepath.Join(s.rootPath, entry.Name())); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			continue
+		}
 		if entry.IsDir() || !strings.HasPrefix(entry.Name(), embedTransactionPrefix) || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
@@ -516,6 +554,30 @@ func (s *Store) reconcileArtifactTransactionsLocked(g *Graph) error {
 		}
 	}
 	return nil
+}
+
+// cleanupArtifactStagingFilesLocked removes payload staging files left by a
+// process that died before publishing an embed transaction. The caller must
+// hold the store lock.
+func (s *Store) cleanupArtifactStagingFilesLocked() error {
+	return filepath.WalkDir(s.artifactsDir(), func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if os.IsNotExist(walkErr) {
+				return nil
+			}
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, embedStagingPrefix) && strings.HasSuffix(name, embedStagingSuffix) {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // pathEscapesRoot rejects absolute and parent-traversing persisted paths.

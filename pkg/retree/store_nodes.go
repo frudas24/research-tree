@@ -925,6 +925,12 @@ func parseJSONNodeID(name string) (NodeID, error) {
 // wait instead of mixing generations; Open can recover a crash by rebuilding
 // nodes.idx from whichever complete nodes.bin was published.
 func (s *Store) writeAllNodesBIN(nodes []*Node) error {
+	return s.writeAllNodesBINWithGenerationWriter(nodes, s.writeBinaryGeneration)
+}
+
+// writeAllNodesBINWithGenerationWriter publishes a binary node generation and
+// permits deterministic fault injection at the final generation write.
+func (s *Store) writeAllNodesBINWithGenerationWriter(nodes []*Node, writeGeneration func(string) error) error {
 	var buf bytes.Buffer
 	WriteBinHeader(&buf)
 	idx := make(map[NodeID]binIndexEntry, len(nodes))
@@ -981,8 +987,11 @@ func (s *Store) writeAllNodesBIN(nodes []*Node) error {
 		_ = os.Remove(tmpIdx)
 		return nil
 	}
-	if err := s.writeBinaryGeneration(token); err != nil {
-		return fmt.Errorf("%w: publish binary generation: %v", ErrDerivedState, err)
+	if err := writeGeneration(token); err != nil {
+		if recoverErr := s.recoverBinaryPublicationLocked(); recoverErr != nil {
+			return fmt.Errorf("%w: publish binary generation: %v; immediate recovery: %v", ErrDerivedState, err, recoverErr)
+		}
+		return nil
 	}
 	// The pair is now complete. Failure to remove the marker does not make the
 	// pair invalid; it only forces the next Open through deterministic reindex.

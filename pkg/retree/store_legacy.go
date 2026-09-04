@@ -100,7 +100,7 @@ func (s *Store) repairLegacyDoneUnsetOutcomes(issues []LegacyOutcomeIssue, fixes
 		if err := s.createSnapshot("repair_legacy_outcomes_pre"); err != nil {
 			return fmt.Errorf("repair legacy outcomes: pre snapshot: %w", err)
 		}
-		if err := s.persistGraph(g); err != nil {
+		if err := s.persistGraph(g); !authoritativeCommitSucceeded(err) {
 			return fmt.Errorf("repair legacy outcomes: persist graph: %w", err)
 		}
 		s.bestEffortSnapshot("repair_legacy_outcomes_post")
