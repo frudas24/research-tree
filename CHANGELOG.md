@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   waiting on a recoverable `.nodes.dirty` marker.
 - Windows lock-free BIN readers use delete-sharing handles, while writers use
   rename-by-handle POSIX replacement for node data, index, and generation
-  files. Pre-commit replacement failures clear dirty and staging state.
+  files. Dirty-marker probes tolerate Windows rename/delete transitions, and
+  pre-commit replacement failures clear dirty and staging state.
 - Embedded artifact journals are staged, synced, and atomically renamed before
   becoming visible; `Open` removes orphan payload and journal staging files.
 
