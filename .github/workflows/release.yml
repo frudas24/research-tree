@@ -27,6 +27,24 @@ jobs:
       - name: Install MinGW cross-compiler
         run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-mingw-w64-x86-64
 
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -count=1 -timeout 120s ./...
+
+      - name: Race detector
+        run: go test -race -count=1 -timeout 180s ./...
+
+      - name: Comment lint
+        run: go run ./third_party/commentlint ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.4.0
+          args: --timeout 5m
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:

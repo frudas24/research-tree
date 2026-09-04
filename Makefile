@@ -19,7 +19,7 @@ DLL_AMD := $(BIN_DIR)/libretree-amd64.dll
 DLL_ARM := $(BIN_DIR)/libretree-arm64.dll
 
 # --- Lint ---
-GOLANGCI_LINT_VER ?= latest
+GOLANGCI_LINT_VER ?= v2.4.0
 LINT_TIMEOUT      ?= 3m
 
 # --- Cache isolation (sandbox-safe builds) ---
@@ -74,7 +74,7 @@ $(DLL_ARM): $(GO_SOURCES) go.mod go.sum
 	@echo "  dll: $@"
 
 # --- Quality pipeline (runs all checks, no build) ---
-check: fmt vet tidy commentlint lint
+check: fmt vet tidy commentlint lint test test-race
 	@echo "✅ all checks passed"
 
 # --- Format ---
@@ -141,7 +141,7 @@ help:
 	@echo "  make build      Run all checks + build binary"
 	@echo "  make libretree.so Build C shared library for FFI (Linux)"
 	@echo "  make dll        Cross-compile Windows DLL (amd64)"
-	@echo "  make check      Run fmt + vet + tidy + commentlint + lint (no build)"
+	@echo "  make check      Run fmt + vet + tidy + lint + tests + race tests"
 	@echo "  make fmt        Format all Go sources"
 	@echo "  make vet        Static analysis"
 	@echo "  make tidy       go mod tidy + verify"
