@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.1] - 2026-09-04
+
 ### Fixed
 - Legacy outcome repair and composite BIN rollback now consistently treat
   `ErrDerivedState` as an already-committed authoritative mutation instead of
@@ -253,7 +255,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     snapshots with retention.
   - C FFI bridge (`libretree.so` / Windows DLL) and GoReleaser packaging.
 
-[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/frudas24/research-tree/compare/v0.5.1...HEAD
+[v0.5.1]: https://github.com/frudas24/research-tree/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/frudas24/research-tree/compare/v0.4.4...v0.5.0
 [v0.4.4]: https://github.com/frudas24/research-tree/compare/v0.4.3...v0.4.4
 [v0.4.3]: https://github.com/frudas24/research-tree/compare/v0.4.2...v0.4.3

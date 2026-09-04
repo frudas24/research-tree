@@ -329,12 +329,14 @@ instead of returning a misleading partial-clean report.
 
 ### Recent updates
 
-As of `v0.5.0`, the main user-visible changes are:
+As of `v0.5.1`, the main user-visible changes are:
 
 - concurrent additive mutations preserve updates from every agent, while stale
   full-node replacements fail with an explicit revision conflict
 - binary stores use recoverable BIN/IDX publication plus generation-checked
   lock-free reads; derived indexes reconcile from authoritative node state
+- Windows readers and writers safely overlap BIN/IDX/generation replacement,
+  with concurrent publication exercised under the race detector in CI
 - embedded artifacts are crash-reconciled, inactive-node leases are repaired,
   and feature current nodes must belong to their feature
 - CI and release publication require the complete test suite, race detector,
