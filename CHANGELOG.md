@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Legacy outcome repair and composite BIN rollback now consistently treat
+  `ErrDerivedState` as an already-committed authoritative mutation instead of
+  returning an ambiguous false failure.
+- Binary generation publication failures trigger immediate in-lock recovery,
+  matching index publication recovery and preventing lock-free reads from
+  waiting on a recoverable `.nodes.dirty` marker.
+- Embedded artifact journals are staged, synced, and atomically renamed before
+  becoming visible; `Open` removes orphan payload and journal staging files.
+
+### Tests
+- Added fault injection for late legacy-repair and rollback failures, binary
+  generation recovery, concurrent BIN readers, and interrupted artifact
+  journal staging.
+- CI and release now reject unformatted Go files, stale module metadata, and
+  unverifiable module downloads before running release tooling.
+
 ## [v0.5.0] - 2026-09-04
 
 ### Added
