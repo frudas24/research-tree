@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The TypeScript FFI bridge resolves `.so`, `.dylib`, and Windows `.dll`
+  libraries by platform, supports `RETREE_LIBRARY_PATH`, and recognizes both
+  release and local Makefile DLL names.
+
 ## [v0.5.1] - 2026-09-04
 
 ### Fixed
