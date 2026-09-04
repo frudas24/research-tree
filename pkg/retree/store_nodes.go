@@ -252,7 +252,7 @@ func (s *Store) writeBinIndex(idx map[NodeID]binIndexEntry) error {
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.nodesIdxPath())
+	return replaceBinaryFile(tmp, s.nodesIdxPath())
 }
 
 // recoverBinaryPublicationLocked repairs a crash interrupted between the
@@ -309,7 +309,7 @@ func (s *Store) writeBinaryGeneration(token string) error {
 	if err := os.WriteFile(tmp, []byte(token+"\n"), 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.binaryGenerationPath())
+	return replaceBinaryFile(tmp, s.binaryGenerationPath())
 }
 
 // beginStableBinaryRead waits for an idle publication window and captures its
@@ -931,7 +931,7 @@ func (s *Store) writeAllNodesBIN(nodes []*Node) error {
 // writeAllNodesBINWithGenerationWriter publishes a binary node generation and
 // permits deterministic fault injection at the final generation write.
 func (s *Store) writeAllNodesBINWithGenerationWriter(nodes []*Node, writeGeneration func(string) error) error {
-	return s.writeAllNodesBINWithPublishers(nodes, os.Rename, writeGeneration)
+	return s.writeAllNodesBINWithPublishers(nodes, replaceBinaryFile, writeGeneration)
 }
 
 // writeAllNodesBINWithPublishers publishes a binary generation while
@@ -988,7 +988,7 @@ func (s *Store) writeAllNodesBINWithPublishers(nodes []*Node, renameBinary func(
 		}
 		return fmt.Errorf("publish binary data: %w", err)
 	}
-	if err := os.Rename(tmpIdx, s.nodesIdxPath()); err != nil {
+	if err := replaceBinaryFile(tmpIdx, s.nodesIdxPath()); err != nil {
 		// nodes.bin is authoritative once renamed. Attempt immediate recovery so
 		// callers do not receive a false pre-commit failure or self-block later.
 		if recoverErr := s.recoverBinaryPublicationLocked(); recoverErr != nil {
