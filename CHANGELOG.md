@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Binary generation publication failures trigger immediate in-lock recovery,
   matching index publication recovery and preventing lock-free reads from
   waiting on a recoverable `.nodes.dirty` marker.
+- Windows lock-free BIN readers now open node data, index, and generation files
+  with delete sharing so writers can replace them while read handles remain
+  active. Pre-commit replacement failures clear dirty and staging state.
 - Embedded artifact journals are staged, synced, and atomically renamed before
   becoming visible; `Open` removes orphan payload and journal staging files.
 
@@ -21,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added fault injection for late legacy-repair and rollback failures, binary
   generation recovery, concurrent BIN readers, and interrupted artifact
   journal staging.
+- Added Windows-gated tests that hold BIN/IDX/generation handles across writer
+  publication and repeatedly stress concurrent lock-free readers under `-race`.
 - CI and release now reject unformatted Go files, stale module metadata, and
   unverifiable module downloads before running release tooling.
 
