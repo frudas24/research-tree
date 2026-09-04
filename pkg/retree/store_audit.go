@@ -3,6 +3,7 @@ package retree
 import (
 	"fmt"
 	"slices"
+	"sort"
 )
 
 // auditStore validates that all persisted store sidecars are structurally and
@@ -21,6 +22,9 @@ func (s *Store) auditStoreAllowLegacyDoneUnset() error {
 // auditStoreWithOptions validates nodes plus every persisted sidecar, with an
 // optional tolerance only for the historical done+unset node pattern.
 func (s *Store) auditStoreWithOptions(allowLegacyDoneUnset bool) error {
+	if err := s.ensureDerivedIndexesReady(); err != nil {
+		return err
+	}
 	var (
 		g   *Graph
 		err error
@@ -31,6 +35,9 @@ func (s *Store) auditStoreWithOptions(allowLegacyDoneUnset bool) error {
 		g, err = s.loadGraph()
 	}
 	if err != nil {
+		return err
+	}
+	if err := s.auditEdges(g); err != nil {
 		return err
 	}
 	if err := s.auditRelations(g); err != nil {
@@ -59,21 +66,91 @@ func (s *Store) auditStoreWithOptions(allowLegacyDoneUnset bool) error {
 	return nil
 }
 
-// auditRelations validates relations.jsonl against the loaded node set.
-func (s *Store) auditRelations(g *Graph) error {
-	lines, err := s.readRelationsLines()
+// auditEdges verifies that edges.jsonl is an exact derived projection of the
+// authoritative Parents arrays, not merely a collection of individually valid
+// lines. Missing or stale edges therefore cannot be silently trusted.
+func (s *Store) auditEdges(g *Graph) error {
+	actual, err := s.readEdgesLines()
 	if err != nil {
 		return err
 	}
-	for _, rl := range lines {
+	expected := make([]edgeLine, 0)
+	for childID := range g.Nodes {
+		for _, parentID := range g.GetParents(childID) {
+			expected = append(expected, edgeLine{From: parentID, To: childID})
+		}
+	}
+	sort.Slice(actual, func(i, j int) bool {
+		if actual[i].From == actual[j].From {
+			return actual[i].To < actual[j].To
+		}
+		return actual[i].From < actual[j].From
+	})
+	sort.Slice(expected, func(i, j int) bool {
+		if expected[i].From == expected[j].From {
+			return expected[i].To < expected[j].To
+		}
+		return expected[i].From < expected[j].From
+	})
+	if len(actual) != len(expected) {
+		return fmt.Errorf("%w: edges index mismatch: got %d lines, want %d", ErrInvalidNode, len(actual), len(expected))
+	}
+	for i := range expected {
+		if actual[i] != expected[i] {
+			return fmt.Errorf("%w: edges index mismatch at %d: got %+v want %+v", ErrInvalidNode, i, actual[i], expected[i])
+		}
+	}
+	return nil
+}
+
+// auditRelations verifies that relations.jsonl exactly equals the relations
+// derived from node payloads. Missing targets remain valid only for matching
+// historical/forward relations in the authoritative node payload.
+func (s *Store) auditRelations(g *Graph) error {
+	actual, err := s.readRelationsLines()
+	if err != nil {
+		return err
+	}
+	expected := make([]relationsLine, 0)
+	for sourceID, node := range g.Nodes {
+		for _, rel := range node.Relations {
+			expected = append(expected, relationsLine{From: sourceID, To: rel.Target, Type: rel.Type, Note: rel.Note})
+		}
+	}
+	for _, rl := range actual {
 		if _, ok := g.Nodes[rl.From]; !ok {
 			return fmt.Errorf("%w: relation source %d not found", ErrInvalidNode, rl.From)
 		}
-		if _, ok := g.Nodes[rl.To]; !ok {
-			return fmt.Errorf("%w: relation target %d not found", ErrInvalidNode, rl.To)
-		}
 		if !slices.Contains(validRelationTypes, rl.Type) {
 			return fmt.Errorf("%w: unknown relation type %q", ErrInvalidNode, rl.Type)
+		}
+		if _, ok := g.Nodes[rl.To]; !ok && !slices.Contains(expected, rl) {
+			// Missing targets are valid only when the authoritative node payload
+			// contains the same historical/forward relation. An index-only target
+			// is corruption and retains the established lint diagnostic.
+			return fmt.Errorf("%w: relation target %d not found", ErrInvalidNode, rl.To)
+		}
+	}
+	less := func(a, b relationsLine) bool {
+		if a.From != b.From {
+			return a.From < b.From
+		}
+		if a.To != b.To {
+			return a.To < b.To
+		}
+		if a.Type != b.Type {
+			return a.Type < b.Type
+		}
+		return a.Note < b.Note
+	}
+	sort.Slice(actual, func(i, j int) bool { return less(actual[i], actual[j]) })
+	sort.Slice(expected, func(i, j int) bool { return less(expected[i], expected[j]) })
+	if len(actual) != len(expected) {
+		return fmt.Errorf("%w: relations index mismatch: got %d lines, want %d", ErrInvalidNode, len(actual), len(expected))
+	}
+	for i := range expected {
+		if actual[i] != expected[i] {
+			return fmt.Errorf("%w: relations index mismatch at %d: got %+v want %+v", ErrInvalidNode, i, actual[i], expected[i])
 		}
 	}
 	return nil
@@ -104,6 +181,11 @@ func (s *Store) auditFeatures(g *Graph) (map[string]*Feature, error) {
 				return nil, fmt.Errorf("%w: duplicate linked node %d in feature %s", ErrDuplicateID, ln.NodeID, f.ID)
 			}
 			linked[ln.NodeID] = struct{}{}
+		}
+		if f.CurrentNode != 0 {
+			if _, ok := linked[f.CurrentNode]; !ok {
+				return nil, fmt.Errorf("%w: feature %s current_node %d is not linked", ErrInvalidNode, f.ID, f.CurrentNode)
+			}
 		}
 		byID[f.ID] = f
 	}
@@ -140,8 +222,12 @@ func (s *Store) auditLeases(g *Graph, resources map[string]Resource) error {
 		if err := ValidateLease(lease); err != nil {
 			return err
 		}
-		if _, ok := g.Nodes[lease.NodeID]; !ok {
+		node, ok := g.Nodes[lease.NodeID]
+		if !ok {
 			return fmt.Errorf("lease node %d: %w", lease.NodeID, ErrNotFound)
+		}
+		if node.Status != StatusActive {
+			return fmt.Errorf("%w: inactive node %d (%s) retains resource lease %s", ErrInvalidResource, lease.NodeID, node.Status, lease.ResourceID)
 		}
 		if _, ok := resources[lease.ResourceID]; !ok {
 			return fmt.Errorf("lease resource %s: %w", lease.ResourceID, ErrNotFound)

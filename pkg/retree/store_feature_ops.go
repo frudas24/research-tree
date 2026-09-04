@@ -150,7 +150,7 @@ func (s *Store) rollbackCreatedNode(previousNext NodeID, createdID NodeID) error
 	if err := g.RemoveNode(createdID, false); err != nil && err != ErrNotFound {
 		return err
 	}
-	if err := s.persistGraphDelta(g, nil, []NodeID{createdID}); err != nil {
+	if err := s.persistGraphDelta(g, nil, []NodeID{createdID}); !authoritativeCommitSucceeded(err) {
 		return err
 	}
 	return s.writeNextID(previousNext)

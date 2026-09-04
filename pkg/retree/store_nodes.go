@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -227,25 +228,168 @@ func (s *Store) readBinIndex() (map[NodeID]binIndexEntry, error) {
 	return out, nil
 }
 
-// writeBinIndex atomically writes the binary index to nodes.idx.
-func (s *Store) writeBinIndex(idx map[NodeID]binIndexEntry) error {
+// marshalBinIndex serializes the direct-access index deterministically enough
+// for atomic pair staging. JSON object key order is handled by encoding/json.
+func marshalBinIndex(idx map[NodeID]binIndexEntry) ([]byte, error) {
 	raw := make(map[string]binIndexEntry, len(idx))
 	for id, v := range idx {
 		raw[fmt.Sprintf("%d", id)] = v
 	}
 	b, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
+}
+
+// writeBinIndex atomically writes the binary index to nodes.idx.
+func (s *Store) writeBinIndex(idx map[NodeID]binIndexEntry) error {
+	b, err := marshalBinIndex(idx)
+	if err != nil {
 		return err
 	}
 	tmp := s.nodesIdxPath() + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.nodesIdxPath())
 }
 
+// recoverBinaryPublicationLocked repairs a crash interrupted between the
+// nodes.bin and nodes.idx renames. The caller must hold the store lock.
+func (s *Store) recoverBinaryPublicationLocked() error {
+	if s.format != StorageBIN {
+		return nil
+	}
+	if _, err := os.Stat(s.binaryDirtyPath()); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	tokenBytes, err := os.ReadFile(s.binaryDirtyPath())
+	if err != nil {
+		return err
+	}
+	token := strings.TrimSpace(string(tokenBytes))
+	if token == "" {
+		token, err = newLockToken()
+		if err != nil {
+			return err
+		}
+	}
+	idx, err := s.scanBinIndex()
+	if err != nil {
+		return err
+	}
+	if err := s.writeBinIndex(idx); err != nil {
+		return err
+	}
+	if err := s.writeBinaryGeneration(token); err != nil {
+		return err
+	}
+	return os.Remove(s.binaryDirtyPath())
+}
+
+// readBinaryGeneration returns the last completely published generation.
+// Missing generation files identify legacy stores and are represented by "".
+func (s *Store) readBinaryGeneration() (string, error) {
+	b, err := os.ReadFile(s.binaryGenerationPath())
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// writeBinaryGeneration atomically publishes the completed generation token.
+func (s *Store) writeBinaryGeneration(token string) error {
+	tmp := s.binaryGenerationPath() + ".tmp"
+	if err := os.WriteFile(tmp, []byte(token+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.binaryGenerationPath())
+}
+
+// beginStableBinaryRead waits for an idle publication window and captures its
+// generation. The marker is checked again after reading the generation to
+// close the writer-started-between-checks race.
+func (s *Store) beginStableBinaryRead(deadline time.Time) (string, error) {
+	for {
+		if _, err := os.Stat(s.binaryDirtyPath()); err == nil {
+			if time.Now().After(deadline) {
+				return "", fmt.Errorf("binary node store has an incomplete publication marker; reopen the store to recover")
+			}
+			time.Sleep(20 * time.Millisecond)
+			continue
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		generation, err := s.readBinaryGeneration()
+		if err != nil {
+			return "", err
+		}
+		if _, err := os.Stat(s.binaryDirtyPath()); os.IsNotExist(err) {
+			return generation, nil
+		} else if err != nil {
+			return "", err
+		}
+	}
+}
+
+// binaryReadStillStable validates the seqlock after an IDX/BIN read.
+func (s *Store) binaryReadStillStable(generation string) (bool, error) {
+	if _, err := os.Stat(s.binaryDirtyPath()); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	current, err := s.readBinaryGeneration()
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(s.binaryDirtyPath()); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	return current == generation, nil
+}
+
+// withStableBinaryRead retries a lock-free read if a complete writer
+// publication overlaps it. A stable decoding error is returned as corruption;
+// an error from a mixed generation is discarded and retried.
+func withStableBinaryRead[T any](s *Store, read func() (T, error)) (T, error) {
+	var zero T
+	deadline := time.Now().Add(lockTimeout)
+	for {
+		generation, err := s.beginStableBinaryRead(deadline)
+		if err != nil {
+			return zero, err
+		}
+		value, readErr := read()
+		stable, err := s.binaryReadStillStable(generation)
+		if err != nil {
+			return zero, err
+		}
+		if stable {
+			return value, readErr
+		}
+		if time.Now().After(deadline) {
+			return zero, fmt.Errorf("binary node store did not reach a stable generation")
+		}
+	}
+}
+
 // loadAllNodesBIN loads nodes from the binary storage format with header validation.
 func (s *Store) loadAllNodesBIN() ([]*Node, error) {
+	return withStableBinaryRead(s, s.loadAllNodesBINOnce)
+}
+
+// loadAllNodesBINOnce reads one candidate generation; the caller verifies its
+// generation before returning it.
+func (s *Store) loadAllNodesBINOnce() ([]*Node, error) {
 	if err := s.ensureBinIndexPresent(); err != nil {
 		return nil, err
 	}
@@ -296,6 +440,12 @@ func (s *Store) loadAllNodesBIN() ([]*Node, error) {
 // loadAllNodesBINWithLegacyOutcomeTolerance loads BIN nodes while allowing
 // historical done+unset payloads so migration tooling can inspect old stores.
 func (s *Store) loadAllNodesBINWithLegacyOutcomeTolerance() ([]*Node, error) {
+	return withStableBinaryRead(s, s.loadAllNodesBINWithLegacyOutcomeToleranceOnce)
+}
+
+// loadAllNodesBINWithLegacyOutcomeToleranceOnce reads one candidate legacy
+// generation; the caller verifies its generation before returning it.
+func (s *Store) loadAllNodesBINWithLegacyOutcomeToleranceOnce() ([]*Node, error) {
 	if err := s.ensureBinIndexPresent(); err != nil {
 		return nil, err
 	}
@@ -381,6 +531,13 @@ func (s *Store) getNodeJSON(id NodeID) (*Node, error) {
 
 // getNodeBIN reads one node payload through the index, verifying its CRC.
 func (s *Store) getNodeBIN(id NodeID) (*Node, error) {
+	return withStableBinaryRead(s, func() (*Node, error) {
+		return s.getNodeBINOnce(id)
+	})
+}
+
+// getNodeBINOnce reads one candidate index/data generation.
+func (s *Store) getNodeBINOnce(id NodeID) (*Node, error) {
 	if err := s.ensureBinIndexPresent(); err != nil {
 		return nil, err
 	}
@@ -566,6 +723,77 @@ func validateGraphReferentialIntegrity(g *Graph) error {
 	return nil
 }
 
+// markDerivedDirty durably announces that edges.jsonl/relations.jsonl must not
+// be trusted until they are regenerated from authoritative node payloads.
+func (s *Store) markDerivedDirty() error {
+	tmp := s.derivedDirtyPath() + ".tmp"
+	if err := os.WriteFile(tmp, []byte(time.Now().UTC().Format(time.RFC3339Nano)+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.derivedDirtyPath())
+}
+
+// clearDerivedDirty marks both derived indexes as synchronized.
+func (s *Store) clearDerivedDirty() { _ = os.Remove(s.derivedDirtyPath()) }
+
+// derivedIndexesNeedRepair reports whether a previous publication was
+// interrupted or either rebuildable sidecar is absent.
+func (s *Store) derivedIndexesNeedRepair() (bool, error) {
+	if _, err := os.Stat(s.derivedDirtyPath()); err == nil {
+		return true, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	for _, path := range []string{s.edgesPath(), s.relationsPath()} {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return true, nil
+		} else if err != nil {
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+// repairDerivedIndexesLocked rebuilds both projections from one graph while
+// the caller holds the store lock.
+func (s *Store) repairDerivedIndexesLocked() error {
+	g, err := s.loadGraphAllowLegacyDoneUnset()
+	if err != nil {
+		return err
+	}
+	if err := s.regenerateEdgesFromGraph(g); err != nil {
+		return err
+	}
+	if err := s.regenerateRelations(g); err != nil {
+		return err
+	}
+	s.clearDerivedDirty()
+	return nil
+}
+
+// ensureDerivedIndexesReady repairs an interrupted derived publication. It is
+// used only from read paths that are not already inside a store mutation.
+func (s *Store) ensureDerivedIndexesReady() error {
+	need, err := s.derivedIndexesNeedRepair()
+	if err != nil || !need {
+		return err
+	}
+	return s.withLock("repair_derived_indexes", func() error {
+		need, err := s.derivedIndexesNeedRepair()
+		if err != nil || !need {
+			return err
+		}
+		return s.repairDerivedIndexesLocked()
+	})
+}
+
+// authoritativeCommitSucceeded reports whether a persistence error occurred
+// only after authoritative node state was already committed. Public node CRUD
+// treats this as success and leaves .derived.dirty for deterministic repair.
+func authoritativeCommitSucceeded(err error) bool {
+	return err == nil || errors.Is(err, ErrDerivedState)
+}
+
 // persistGraph writes the in-memory graph to disk in the configured format.
 func (s *Store) persistGraph(g *Graph) error {
 	return s.persistGraphDelta(g, nil, nil)
@@ -587,6 +815,11 @@ func (s *Store) persistGraphDelta(g *Graph, dirty map[NodeID]struct{}, removed [
 	for _, id := range ids {
 		nodes = append(nodes, g.Nodes[id])
 	}
+	// Announce the derived-index transition before touching authoritative node
+	// state. A crash anywhere below leaves a deterministic repair signal.
+	if err := s.markDerivedDirty(); err != nil {
+		return err
+	}
 	if s.format == StorageJSON {
 		if err := s.writeAllNodesJSONDelta(nodes, dirty, removed); err != nil {
 			return err
@@ -596,10 +829,17 @@ func (s *Store) persistGraphDelta(g *Graph, dirty map[NodeID]struct{}, removed [
 			return err
 		}
 	}
+	// From this point the authoritative node mutation is committed. Derived
+	// projections are rebuildable; a late sidecar error must not masquerade as
+	// a failed node mutation. Leave .derived.dirty for deterministic repair.
 	if err := s.regenerateEdgesFromGraph(g); err != nil {
-		return err
+		return fmt.Errorf("%w: regenerate edges: %v", ErrDerivedState, err)
 	}
-	return s.regenerateRelations(g)
+	if err := s.regenerateRelations(g); err != nil {
+		return fmt.Errorf("%w: regenerate relations: %v", ErrDerivedState, err)
+	}
+	s.clearDerivedDirty()
+	return nil
 }
 
 // writeAllNodesJSONDelta writes only dirty node files in JSON mode. Files for
@@ -634,12 +874,10 @@ func (s *Store) writeAllNodesJSONDelta(nodes []*Node, dirty map[NodeID]struct{},
 			toDelete[id] = struct{}{}
 		}
 	}
-	for id := range toDelete {
-		name := filepath.Join(s.nodesDir(), fmt.Sprintf("%04d.json", id))
-		if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
+
+	// Publish every rewritten survivor before deleting removed nodes. If the
+	// process dies between these phases, the old parent may remain but no child
+	// can reference a parent that has already vanished.
 	writeAll := dirty == nil
 	for _, n := range nodes {
 		if !writeAll {
@@ -660,6 +898,12 @@ func (s *Store) writeAllNodesJSONDelta(nodes []*Node, dirty map[NodeID]struct{},
 			return err
 		}
 	}
+	for id := range toDelete {
+		name := filepath.Join(s.nodesDir(), fmt.Sprintf("%04d.json", id))
+		if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -676,7 +920,10 @@ func parseJSONNodeID(name string) (NodeID, error) {
 	return NodeID(id), nil
 }
 
-// writeAllNodesBIN writes all nodes using the binary codec with header.
+// writeAllNodesBIN stages nodes.bin and nodes.idx completely before publishing
+// either one. A durable marker brackets the two renames so lock-free readers
+// wait instead of mixing generations; Open can recover a crash by rebuilding
+// nodes.idx from whichever complete nodes.bin was published.
 func (s *Store) writeAllNodesBIN(nodes []*Node) error {
 	var buf bytes.Buffer
 	WriteBinHeader(&buf)
@@ -692,14 +939,55 @@ func (s *Store) writeAllNodesBIN(nodes []*Node) error {
 		}
 		idx[n.ID] = binIndexEntry{Offset: off, Length: int64(len(b)), Checksum: crc32.ChecksumIEEE(b)}
 	}
+	idxBytes, err := marshalBinIndex(idx)
+	if err != nil {
+		return err
+	}
 	tmpBin := s.nodesBinPath() + ".tmp"
+	tmpIdx := s.nodesIdxPath() + ".pair.tmp"
 	if err := os.WriteFile(tmpBin, buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(tmpIdx, idxBytes, 0o644); err != nil {
+		_ = os.Remove(tmpBin)
+		return err
+	}
+	token, err := newLockToken()
+	if err != nil {
+		_ = os.Remove(tmpBin)
+		_ = os.Remove(tmpIdx)
+		return err
+	}
+	markerTmp := s.binaryDirtyPath() + ".tmp"
+	if err := os.WriteFile(markerTmp, []byte(token+"\n"), 0o644); err != nil {
+		_ = os.Remove(tmpBin)
+		_ = os.Remove(tmpIdx)
+		return err
+	}
+	if err := os.Rename(markerTmp, s.binaryDirtyPath()); err != nil {
+		_ = os.Remove(tmpBin)
+		_ = os.Remove(tmpIdx)
 		return err
 	}
 	if err := os.Rename(tmpBin, s.nodesBinPath()); err != nil {
 		return err
 	}
-	return s.writeBinIndex(idx)
+	if err := os.Rename(tmpIdx, s.nodesIdxPath()); err != nil {
+		// nodes.bin is authoritative once renamed. Attempt immediate recovery so
+		// callers do not receive a false pre-commit failure or self-block later.
+		if recoverErr := s.recoverBinaryPublicationLocked(); recoverErr != nil {
+			return fmt.Errorf("%w: publish binary index: %v; immediate recovery: %v", ErrDerivedState, err, recoverErr)
+		}
+		_ = os.Remove(tmpIdx)
+		return nil
+	}
+	if err := s.writeBinaryGeneration(token); err != nil {
+		return fmt.Errorf("%w: publish binary generation: %v", ErrDerivedState, err)
+	}
+	// The pair is now complete. Failure to remove the marker does not make the
+	// pair invalid; it only forces the next Open through deterministic reindex.
+	_ = os.Remove(s.binaryDirtyPath())
+	return nil
 }
 
 // regenerateEdgesFromGraph reconstructs edges.jsonl from the graph.
@@ -754,13 +1042,51 @@ func (s *Store) regenerateRelations(g *Graph) error {
 	return os.Rename(tmp, s.relationsPath())
 }
 
-// RegenerateEdges reconstructs the edges.jsonl index from stored nodes.
+// RegenerateEdges reconstructs the edges.jsonl index from stored nodes under
+// the store lock so a stale pre-update graph cannot overwrite a newer index.
 func (s *Store) RegenerateEdges() error {
-	g, err := s.loadGraph()
+	return s.withLock("regenerate_edges", func() error {
+		g, err := s.loadGraph()
+		if err != nil {
+			return err
+		}
+		return s.regenerateEdgesFromGraph(g)
+	})
+}
+
+// edgeLine is the on-disk format for one parent edge in edges.jsonl.
+type edgeLine struct {
+	From NodeID `json:"from"`
+	To   NodeID `json:"to"`
+}
+
+// readEdgesLines reads and schema-validates every parent edge.
+func (s *Store) readEdgesLines() ([]edgeLine, error) {
+	f, err := os.Open(s.edgesPath())
 	if err != nil {
-		return err
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
-	return s.regenerateEdgesFromGraph(g)
+	defer func() { _ = f.Close() }()
+	var out []edgeLine
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var edge edgeLine
+		if err := decodeJSONStrict(line, &edge); err != nil {
+			return nil, err
+		}
+		if edge.From == 0 || edge.To == 0 {
+			return nil, fmt.Errorf("%w: edge endpoints must be non-zero", ErrInvalidNode)
+		}
+		out = append(out, edge)
+	}
+	return out, sc.Err()
 }
 
 // relationsLine is the on-disk format for one relation edge in relations.jsonl.
@@ -826,7 +1152,7 @@ func (s *Store) readRelationsLines() ([]relationsLine, error) {
 			continue
 		}
 		var rl relationsLine
-		if err := json.Unmarshal([]byte(line), &rl); err != nil {
+		if err := decodeJSONStrict([]byte(line), &rl); err != nil {
 			return nil, err
 		}
 		out = append(out, rl)
@@ -834,13 +1160,17 @@ func (s *Store) readRelationsLines() ([]relationsLine, error) {
 	return out, sc.Err()
 }
 
-// regenerateRelationsFromNodes rebuilds relations.jsonl from all stored nodes.
+// regenerateRelationsFromNodes rebuilds relations.jsonl from all stored nodes
+// while holding the store lock to prevent stale repair output from winning a
+// race with a concurrent node update.
 func (s *Store) regenerateRelationsFromNodes() error {
-	g, err := s.loadGraph()
-	if err != nil {
-		return err
-	}
-	return s.regenerateRelations(g)
+	return s.withLock("regenerate_relations", func() error {
+		g, err := s.loadGraph()
+		if err != nil {
+			return err
+		}
+		return s.regenerateRelations(g)
+	})
 }
 
 // appendJSONLine appends a JSON-encoded value as a single line to the file.
@@ -878,7 +1208,7 @@ func readJSONLines[T any](path string) ([]T, error) {
 			continue
 		}
 		var v T
-		if jerr := json.Unmarshal(bytes.TrimSpace(line), &v); jerr != nil {
+		if jerr := decodeJSONStrict(bytes.TrimSpace(line), &v); jerr != nil {
 			return nil, jerr
 		}
 		out = append(out, v)
@@ -903,8 +1233,9 @@ func (s *Store) ext() string {
 	return ".json"
 }
 
-// saveNodeHistory writes the previous version of a node to the per-node
-// history directory before it gets overwritten by an update.
+// saveNodeHistory writes the previous version of a node to an immutable,
+// collision-resistant history entry. Callers validate the candidate first so a
+// rejected mutation cannot create history.
 func (s *Store) saveNodeHistory(n *Node) error {
 	dir := filepath.Join(s.nodeHistoryDir(), fmt.Sprintf("%04d", n.ID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -916,16 +1247,34 @@ func (s *Store) saveNodeHistory(n *Node) error {
 		b, err = MarshalNodeBinary(n)
 	} else {
 		b, err = MarshalNodeJSON(n)
+		if err == nil {
+			b = append(b, '\n')
+		}
 	}
 	if err != nil {
 		return err
 	}
-	ts := n.Modified.UTC().Format("20060102_150405")
+	ts := time.Now().UTC().Format("20060102_150405.000000000")
 	path := filepath.Join(dir, fmt.Sprintf("rev%04d_%s%s", n.Revision, ts, s.ext()))
-	if s.format == StorageBIN {
-		return os.WriteFile(path, b, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o644)
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 // GetNodeHistory returns all historical versions of a node, sorted oldest-first.

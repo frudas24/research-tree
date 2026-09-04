@@ -17,6 +17,15 @@ func (s *Store) nodesBinPath() string { return filepath.Join(s.rootPath, "nodes.
 // nodesIdxPath returns the path to nodes.idx.
 func (s *Store) nodesIdxPath() string { return filepath.Join(s.rootPath, "nodes.idx") }
 
+// binaryDirtyPath marks an in-progress binary pair publication.
+func (s *Store) binaryDirtyPath() string { return filepath.Join(s.rootPath, ".nodes.dirty") }
+
+// binaryGenerationPath stores the last completely published binary generation.
+func (s *Store) binaryGenerationPath() string { return filepath.Join(s.rootPath, ".nodes.generation") }
+
+// derivedDirtyPath marks parent/relation indexes that need regeneration.
+func (s *Store) derivedDirtyPath() string { return filepath.Join(s.rootPath, ".derived.dirty") }
+
 // edgesPath returns the path to edges.jsonl.
 func (s *Store) edgesPath() string { return filepath.Join(s.rootPath, "edges.jsonl") }
 

@@ -46,7 +46,7 @@ func (s *Store) loadFeaturePayload() (*featurePayload, error) {
 		return nil, err
 	}
 	var p featurePayload
-	if err := json.Unmarshal(b, &p); err != nil {
+	if err := decodeJSONStrict(b, &p); err != nil {
 		return nil, err
 	}
 	if p.Features == nil {
@@ -273,16 +273,21 @@ func (s *Store) SetFeatureCurrentNode(featureSpec string, nodeID NodeID) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.GetNode(nodeID); err != nil {
-		return fmt.Errorf("current node %d: %w", nodeID, ErrNotFound)
-	}
 	return s.withLock("set_feature_current", func() error {
+		if _, err := s.GetNode(nodeID); err != nil {
+			return fmt.Errorf("current node %d: %w", nodeID, ErrNotFound)
+		}
 		payload, err := s.loadFeaturePayload()
 		if err != nil {
 			return err
 		}
 		for _, f := range payload.Features {
 			if f.ID == fid {
+				if !slices.ContainsFunc(f.Nodes, func(link FeatureLinkedNode) bool {
+					return link.NodeID == nodeID
+				}) {
+					return &FeatureError{msg: fmt.Sprintf("current node %d is not linked to feature %s", nodeID, fid)}
+				}
 				f.CurrentNode = nodeID
 				f.CurrentNodeMode = "explicit"
 				if err := ValidateFeature(f); err != nil {
@@ -295,10 +300,24 @@ func (s *Store) SetFeatureCurrentNode(featureSpec string, nodeID NodeID) error {
 	})
 }
 
-// FeatureExists reports whether a feature spec resolves to an existing feature.
-func (s *Store) FeatureExists(spec string) bool {
+// FeatureExistsChecked reports whether a feature exists while preserving
+// storage/parsing failures as errors instead of silently mapping them to false.
+func (s *Store) FeatureExistsChecked(spec string) (bool, error) {
 	_, err := s.GetFeature(spec)
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	if err == ErrNotFound {
+		return false, nil
+	}
+	return false, err
+}
+
+// FeatureExists is the backward-compatible convenience form. New fail-closed
+// callers should prefer FeatureExistsChecked.
+func (s *Store) FeatureExists(spec string) bool {
+	ok, err := s.FeatureExistsChecked(spec)
+	return err == nil && ok
 }
 
 // ── Feature Edges ───────────────────────────────────────────────────────────
@@ -341,7 +360,7 @@ func (s *Store) loadFeatureEdges() ([]FeatureEdge, error) {
 			continue
 		}
 		var e FeatureEdge
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
+		if err := decodeJSONStrict([]byte(line), &e); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

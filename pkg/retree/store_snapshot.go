@@ -193,7 +193,7 @@ func (s *Store) readManifest() (snapshotManifest, error) {
 		return snapshotManifest{}, err
 	}
 	var m snapshotManifest
-	if err := json.Unmarshal(b, &m); err != nil {
+	if err := decodeJSONStrict(b, &m); err != nil {
 		return snapshotManifest{}, err
 	}
 	return m, nil
@@ -278,6 +278,16 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 		if err := copyIfExists(s.snapshotsDir(), filepath.Join(stagingDir, "snapshots")); err != nil {
 			return err
 		}
+		// Validate/reconcile staging before copying the live lock. Open now
+		// performs any legacy layout repair under its own lock; pre-seeding it
+		// with our still-live owner token would self-block the restore.
+		staged, err := openStore(stagingDir)
+		if err != nil {
+			return err
+		}
+		if err := staged.auditStoreAllowLegacyDoneUnset(); err != nil {
+			return err
+		}
 		lock, err := s.readLockInfo()
 		if err != nil && !os.IsNotExist(err) {
 			return err
@@ -286,13 +296,6 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 			if err := writeLockFile(filepath.Join(stagingDir, "lock"), lock); err != nil {
 				return err
 			}
-		}
-		staged, err := openStore(stagingDir)
-		if err != nil {
-			return err
-		}
-		if err := staged.auditStoreAllowLegacyDoneUnset(); err != nil {
-			return err
 		}
 		if err := renamePath(s.rootPath, rollbackDir); err != nil {
 			return err

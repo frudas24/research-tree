@@ -1,7 +1,5 @@
 package retree
 
-import "time"
-
 // Store is the primary interface to a research-tree root on disk.
 // It provides CRUD for nodes, graph queries, filtering, artifact management, and tagging.
 type Store struct {
@@ -167,36 +165,25 @@ func (s *Store) AddArtifact(id NodeID, a Artifact) error {
 	if err := ValidateArtifact(a); err != nil {
 		return err
 	}
-	n, err := s.GetNode(id)
-	if err != nil {
-		return err
-	}
-	n.Artifacts = append(n.Artifacts, a)
-	n.Modified = time.Now().UTC()
-	return s.UpdateNode(n)
+	return s.mutateNode(id, "add_artifact", func(n *Node) error {
+		n.Artifacts = append(n.Artifacts, a)
+		return nil
+	})
 }
 
 // RemoveArtifact removes artifact references matching the non-empty fields of the matcher.
 func (s *Store) RemoveArtifact(id NodeID, matcher Artifact) error {
-	n, err := s.GetNode(id)
-	if err != nil {
-		return err
-	}
-	filtered := n.Artifacts[:0]
-	removed := false
-	for _, a := range n.Artifacts {
-		if artifactMatches(a, matcher) {
-			removed = true
-			continue
+	return s.mutateNode(id, "remove_artifact", func(n *Node) error {
+		filtered := n.Artifacts[:0]
+		for _, a := range n.Artifacts {
+			if artifactMatches(a, matcher) {
+				continue
+			}
+			filtered = append(filtered, a)
 		}
-		filtered = append(filtered, a)
-	}
-	if !removed {
+		n.Artifacts = filtered
 		return nil
-	}
-	n.Artifacts = filtered
-	n.Modified = time.Now().UTC()
-	return s.UpdateNode(n)
+	})
 }
 
 // EmbedArtifact copies a local file into the research root and registers it.
@@ -261,60 +248,50 @@ func (s *Store) GetNodeResourceLeases(nodeID NodeID) ([]ResourceLease, error) {
 
 // AddTags adds one or more tags to a node.
 func (s *Store) AddTags(id NodeID, tags ...string) error {
-	n, err := s.GetNode(id)
-	if err != nil {
-		return err
-	}
-	n.Tags = append(n.Tags, tags...)
-	n.Tags = uniqueStrings(n.Tags)
-	n.Modified = time.Now().UTC()
-	return s.UpdateNode(n)
+	return s.mutateNode(id, "add_tags", func(n *Node) error {
+		n.Tags = uniqueStrings(append(n.Tags, tags...))
+		return nil
+	})
 }
 
 // RemoveTags removes one or more tags from a node.
 func (s *Store) RemoveTags(id NodeID, tags ...string) error {
-	n, err := s.GetNode(id)
-	if err != nil {
-		return err
-	}
-	for _, tag := range tags {
-		n.Tags = removeString(n.Tags, tag)
-	}
-	n.Modified = time.Now().UTC()
-	return s.UpdateNode(n)
+	return s.mutateNode(id, "remove_tags", func(n *Node) error {
+		for _, tag := range tags {
+			n.Tags = removeString(n.Tags, tag)
+		}
+		return nil
+	})
 }
 
 // AddParents adds one or more parent edges to a node without replacing existing parents.
 func (s *Store) AddParents(id NodeID, parents ...NodeID) error {
-	n, err := s.GetNode(id)
-	if err != nil {
-		return err
-	}
-	n.Parents = uniqueSortedIDs(append(n.Parents, parents...))
-	n.Modified = time.Now().UTC()
-	return s.UpdateNode(n)
+	return s.mutateNode(id, "add_parents", func(n *Node) error {
+		n.Parents = uniqueSortedIDs(append(n.Parents, parents...))
+		return nil
+	})
 }
 
 // RemoveParents removes one or more parent edges from a node.
 func (s *Store) RemoveParents(id NodeID, parents ...NodeID) error {
-	n, err := s.GetNode(id)
-	if err != nil {
-		return err
-	}
-	toRemove := make(map[NodeID]struct{}, len(parents))
-	for _, pid := range parents {
-		toRemove[pid] = struct{}{}
-	}
-	filtered := n.Parents[:0]
-	for _, pid := range n.Parents {
-		if _, drop := toRemove[pid]; drop {
-			continue
+	return s.mutateNode(id, "remove_parents", func(n *Node) error {
+		toRemove := make(map[NodeID]struct{}, len(parents))
+		for _, pid := range parents {
+			toRemove[pid] = struct{}{}
 		}
-		filtered = append(filtered, pid)
-	}
-	n.Parents = uniqueSortedIDs(filtered)
-	n.Modified = time.Now().UTC()
-	return s.UpdateNode(n)
+		filtered := n.Parents[:0]
+		for _, pid := range n.Parents {
+			if _, drop := toRemove[pid]; drop {
+				if n.PrimaryParent != nil && *n.PrimaryParent == pid {
+					n.PrimaryParent = nil
+				}
+				continue
+			}
+			filtered = append(filtered, pid)
+		}
+		n.Parents = uniqueSortedIDs(filtered)
+		return nil
+	})
 }
 
 // artifactMatches reports whether an artifact matches the non-zero matcher fields.
@@ -378,16 +355,38 @@ func (s *Store) GetActiveAgents() ([]string, error) {
 	return uniqueStrings(out), nil
 }
 
-// NextID returns the next ID that would be assigned (without reserving it).
+// NextIDChecked returns the next ID that would be assigned without hiding
+// storage corruption or read failures.
+func (s *Store) NextIDChecked() (NodeID, error) { return s.readNextID() }
+
+// NextID is the backward-compatible convenience form. New fail-closed callers
+// should prefer NextIDChecked. A zero result means the counter could not be read.
 func (s *Store) NextID() NodeID {
-	id, _ := s.readNextID()
+	id, err := s.NextIDChecked()
+	if err != nil {
+		return 0
+	}
 	return id
 }
 
-// ResolveAgentName looks up a human-readable name from agents.json.
-func (s *Store) ResolveAgentName(id string) string {
+// ResolveAgentNameChecked looks up a human-readable name without conflating a
+// broken agents.json with a missing optional display name.
+func (s *Store) ResolveAgentNameChecked(id string) (string, error) {
 	name, err := s.resolveAgentName(id)
-	if err != nil || name == "" {
+	if err != nil {
+		return "", err
+	}
+	if name == "" {
+		return id, nil
+	}
+	return name, nil
+}
+
+// ResolveAgentName is the backward-compatible display helper. New fail-closed
+// callers should prefer ResolveAgentNameChecked.
+func (s *Store) ResolveAgentName(id string) string {
+	name, err := s.ResolveAgentNameChecked(id)
+	if err != nil {
 		return id
 	}
 	return name

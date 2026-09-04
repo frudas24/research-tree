@@ -21,6 +21,11 @@ var (
 	ErrCycleDetected = errors.New("cycle detected")
 	// ErrHasChildren is returned when deleting a node that still has children.
 	ErrHasChildren = errors.New("node has children")
+	// ErrConflict is returned when an optimistic revision precondition is stale.
+	ErrConflict = errors.New("revision conflict")
+	// ErrDerivedState is returned internally when authoritative node state committed
+	// but a rebuildable derived index still needs repair.
+	ErrDerivedState = errors.New("derived state repair needed")
 	// ErrInvalidResource is returned when a resource payload is invalid.
 	ErrInvalidResource = errors.New("invalid resource")
 	// ErrResourceBusy is returned when a resource cannot accept more leases.

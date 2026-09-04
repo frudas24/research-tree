@@ -35,6 +35,12 @@ func (s *Store) withLock(operation string, fn func() error) error {
 		return err
 	}
 	defer release()
+	// A previous binary writer may have committed nodes.bin but crashed before
+	// publishing nodes.idx. Recover while this writer owns the store lock so the
+	// same Store instance does not wait on its own stale publication marker.
+	if err := s.recoverBinaryPublicationLocked(); err != nil {
+		return err
+	}
 	return fn()
 }
 

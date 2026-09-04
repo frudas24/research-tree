@@ -336,32 +336,34 @@ func (s *Store) getResourceEvents(resourceID string) ([]ResourceEvent, error) {
 	return out, nil
 }
 
-// releaseNodeResourcesUnlocked removes all active leases for a node.
-func (s *Store) releaseNodeResourcesUnlocked(nodeID NodeID, action ResourceEventAction) error {
+// reconcileInactiveLeasesLocked removes legacy/crash residue where an
+// inactive node still holds capacity. The caller must hold the store lock.
+func (s *Store) reconcileInactiveLeasesLocked(g *Graph) error {
 	leases, err := s.readLeases()
 	if err != nil {
 		return err
 	}
-	filtered := leases[:0]
+	filtered := make([]ResourceLease, 0, len(leases))
 	events := make([]ResourceEvent, 0)
-	removed := false
 	for _, lease := range leases {
-		if lease.NodeID == nodeID {
-			removed = true
-			events = append(events, ResourceEvent{
-				ResourceID: lease.ResourceID,
-				NodeID:     lease.NodeID,
-				Action:     action,
-				Mode:       lease.Mode,
-				ClaimedBy:  lease.ClaimedBy,
-				Note:       lease.Note,
-				Timestamp:  nowUTC(),
-			})
+		node, ok := g.Nodes[lease.NodeID]
+		if !ok {
+			// Missing-node leases are corruption rather than safe migration; let
+			// the auditor report them instead of silently erasing evidence.
+			filtered = append(filtered, lease)
 			continue
 		}
-		filtered = append(filtered, lease)
+		if node.Status == StatusActive {
+			filtered = append(filtered, lease)
+			continue
+		}
+		action := ResourceEventAutoReleaseDone
+		if node.Status == StatusPaused {
+			action = ResourceEventAutoReleasePause
+		}
+		events = append(events, ResourceEvent{ResourceID: lease.ResourceID, NodeID: lease.NodeID, Action: action, Mode: lease.Mode, ClaimedBy: lease.ClaimedBy, Note: lease.Note, Timestamp: nowUTC()})
 	}
-	if !removed {
+	if len(filtered) == len(leases) {
 		return nil
 	}
 	if err := s.writeLeases(filtered); err != nil {
@@ -371,13 +373,6 @@ func (s *Store) releaseNodeResourcesUnlocked(nodeID NodeID, action ResourceEvent
 		_ = s.appendResourceEvent(event)
 	}
 	return nil
-}
-
-// bestEffortReleaseNodeResources clears leases after the primary node mutation
-// is durable, without surfacing a late sidecar write failure as if the node
-// update or delete itself had failed.
-func (s *Store) bestEffortReleaseNodeResources(nodeID NodeID, action ResourceEventAction) {
-	_ = s.releaseNodeResourcesUnlocked(nodeID, action)
 }
 
 // ApplyResourceDefaults fills default resource fields deterministically.
@@ -413,7 +408,7 @@ func (s *Store) readResources() ([]Resource, error) {
 		return []Resource{}, nil
 	}
 	var resources []Resource
-	if err := json.Unmarshal(data, &resources); err != nil {
+	if err := decodeJSONStrict(data, &resources); err != nil {
 		return nil, err
 	}
 	for i := range resources {
@@ -446,7 +441,7 @@ func (s *Store) readLeases() ([]ResourceLease, error) {
 		return []ResourceLease{}, nil
 	}
 	var leases []ResourceLease
-	if err := json.Unmarshal(data, &leases); err != nil {
+	if err := decodeJSONStrict(data, &leases); err != nil {
 		return nil, err
 	}
 	return leases, nil

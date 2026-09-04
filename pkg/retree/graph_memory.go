@@ -86,6 +86,9 @@ func (g *Graph) RemoveNode(id NodeID, force bool) error {
 			g.Parents[cid] = removeID(g.Parents[cid], id)
 			if cn, ok := g.Nodes[cid]; ok {
 				cn.Parents = removeID(cn.Parents, id)
+				if cn.PrimaryParent != nil && *cn.PrimaryParent == id {
+					cn.PrimaryParent = nil
+				}
 			}
 		}
 	}

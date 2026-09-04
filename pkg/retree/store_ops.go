@@ -6,9 +6,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 )
+
+const embedTransactionPrefix = ".embed-transaction-"
+
+// embedTransaction journals one payload-to-node publication in progress.
+type embedTransaction struct {
+	NodeID       NodeID `json:"node_id"`
+	ArtifactPath string `json:"artifact_path"`
+}
 
 // createNode assigns an ID, applies defaults, and persists a new node.
 func (s *Store) createNode(n *Node) error {
@@ -35,7 +45,7 @@ func (s *Store) createNode(n *Node) error {
 		if err := s.writeNextID(next + 1); err != nil {
 			return err
 		}
-		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); err != nil {
+		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); !authoritativeCommitSucceeded(err) {
 			return err
 		}
 		s.bestEffortSnapshot("create_node")
@@ -43,7 +53,54 @@ func (s *Store) createNode(n *Node) error {
 	})
 }
 
-// updateNode persists modifications to an existing node.
+// mutateNodeLocked applies a read-modify-write mutation to the latest node while
+// the store lock is held. This is the primitive used by additive helpers such
+// as AddTags/AddParents so two agents cannot lose each other's updates between
+// an unlocked GetNode and a later UpdateNode.
+func (s *Store) mutateNode(id NodeID, operation string, mutate func(*Node) error) error {
+	if id == 0 {
+		return fmt.Errorf("%w: id required", ErrInvalidNode)
+	}
+	return s.withLock(operation, func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
+		g, err := s.loadGraph()
+		if err != nil {
+			return err
+		}
+		existing, err := g.GetNode(id)
+		if err != nil {
+			return err
+		}
+		candidate := CloneNode(existing)
+		if err := mutate(candidate); err != nil {
+			return err
+		}
+		candidate.Created = existing.Created
+		candidate.Modified = nowUTC()
+		candidate.Revision = existing.Revision + 1
+		ApplyNodeDefaults(candidate, candidate.Created)
+		// Validate the complete logical mutation before producing history or
+		// touching durable node state.
+		if err := g.UpdateNode(id, candidate); err != nil {
+			return err
+		}
+		if err := s.saveNodeHistory(existing); err != nil {
+			return err
+		}
+		if err := s.persistGraphDelta(g, map[NodeID]struct{}{id: {}}, nil); !authoritativeCommitSucceeded(err) {
+			return err
+		}
+		s.bestEffortSnapshot(operation)
+		return nil
+	})
+}
+
+// updateNode persists modifications to an existing node. A non-zero Revision
+// is an optimistic concurrency precondition: stale snapshots fail instead of
+// silently overwriting newer work. Revision zero remains accepted for legacy
+// callers that intentionally perform an unconditional full replacement.
 func (s *Store) updateNode(n *Node) error {
 	if n == nil || n.ID == 0 {
 		return fmt.Errorf("%w: id required", ErrInvalidNode)
@@ -60,6 +117,9 @@ func (s *Store) updateNode(n *Node) error {
 		if err != nil {
 			return err
 		}
+		if n.Revision != 0 && n.Revision != existing.Revision {
+			return fmt.Errorf("%w: node %d expected revision %d, current revision %d", ErrConflict, n.ID, n.Revision, existing.Revision)
+		}
 		candidate := CloneNode(n)
 		if candidate.Created.IsZero() {
 			candidate.Created = existing.Created
@@ -67,33 +127,67 @@ func (s *Store) updateNode(n *Node) error {
 		candidate.Modified = nowUTC()
 		candidate.Revision = existing.Revision + 1
 		ApplyNodeDefaults(candidate, candidate.Created)
-		if err := s.saveNodeHistory(existing); err != nil {
-			return err
-		}
+		// Graph.UpdateNode is the final semantic validator (parents, relations,
+		// cycles). Do it before history or any durable side effect.
 		if err := g.UpdateNode(n.ID, candidate); err != nil {
 			return err
 		}
+
+		// Resource leases are coordination state, not best-effort decoration.
+		// For transitions away from active, release them first while retaining
+		// an in-memory rollback copy. A crash in this tiny window can only leave
+		// an active node without a lease (safe under-allocation), never a done
+		// node that still blocks capacity.
+		var (
+			oldLeases       []ResourceLease
+			leaseEvents     []ResourceEvent
+			leasesRewritten bool
+		)
 		if candidate.Status == StatusDone || candidate.Status == StatusPaused {
-			if _, err := s.readLeases(); err != nil {
+			oldLeases, err = s.readLeases()
+			if err != nil {
 				return err
 			}
+			filtered, events := filterNodeLeases(oldLeases, candidate.ID, func() ResourceEventAction {
+				if candidate.Status == StatusPaused {
+					return ResourceEventAutoReleasePause
+				}
+				return ResourceEventAutoReleaseDone
+			}())
+			leaseEvents = events
+			if len(filtered) != len(oldLeases) {
+				if err := s.writeLeases(filtered); err != nil {
+					return err
+				}
+				leasesRewritten = true
+			}
 		}
-		if err := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil); err != nil {
+
+		if err := s.saveNodeHistory(existing); err != nil {
+			if leasesRewritten {
+				_ = s.writeLeases(oldLeases)
+			}
 			return err
 		}
-		if candidate.Status == StatusDone || candidate.Status == StatusPaused {
-			action := ResourceEventAutoReleaseDone
-			if candidate.Status == StatusPaused {
-				action = ResourceEventAutoReleasePause
+		persistErr := s.persistGraphDelta(g, map[NodeID]struct{}{n.ID: {}}, nil)
+		if !authoritativeCommitSucceeded(persistErr) {
+			if leasesRewritten {
+				_ = s.writeLeases(oldLeases)
 			}
-			s.bestEffortReleaseNodeResources(candidate.ID, action)
+			return persistErr
+		}
+		updated := CloneNode(candidate)
+		*n = *updated
+		for _, event := range leaseEvents {
+			_ = s.appendResourceEvent(event)
 		}
 		s.bestEffortSnapshot("update_node")
 		return nil
 	})
 }
 
-// deleteNode removes a node, optionally forcing orphan of children.
+// deleteNode removes a node. Force deletion orphans structural children while
+// preserving typed relations as historical/unmoored references by design.
 func (s *Store) deleteNode(id NodeID, force bool) error {
 	return s.withLock("delete_node", func() error {
 		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
@@ -103,31 +197,79 @@ func (s *Store) deleteNode(id NodeID, force bool) error {
 		if err != nil {
 			return err
 		}
-		// When forced, children lose the deleted parent from their Parents
-		// list, so their files must be rewritten too.
-		var dirty map[NodeID]struct{}
+		if _, ok := g.Nodes[id]; !ok {
+			return ErrNotFound
+		}
+
+		// Every child whose authoritative payload is changed by force deletion
+		// must be rewritten so parent/primary_parent stay coherent.
+		dirty := make(map[NodeID]struct{})
 		if force {
-			children := g.GetChildren(id)
-			if len(children) > 0 {
-				dirty = make(map[NodeID]struct{}, len(children))
-				for _, cid := range children {
-					dirty[cid] = struct{}{}
-				}
+			for _, cid := range g.GetChildren(id) {
+				dirty[cid] = struct{}{}
 			}
 		}
 		if err := g.RemoveNode(id, force); err != nil {
 			return err
 		}
-		if _, err := s.readLeases(); err != nil {
+		for dirtyID := range dirty {
+			if node := g.Nodes[dirtyID]; node != nil {
+				if err := ValidateNode(node); err != nil {
+					return fmt.Errorf("post-delete node %d: %w", dirtyID, err)
+				}
+			}
+		}
+		if err := validateGraphReferentialIntegrity(g); err != nil {
 			return err
 		}
-		if err := s.persistGraphDelta(g, dirty, []NodeID{id}); err != nil {
+
+		oldLeases, err := s.readLeases()
+		if err != nil {
 			return err
 		}
-		s.bestEffortReleaseNodeResources(id, ResourceEventAutoReleaseDelete)
+		filteredLeases, leaseEvents := filterNodeLeases(oldLeases, id, ResourceEventAutoReleaseDelete)
+		leasesRewritten := len(filteredLeases) != len(oldLeases)
+		if leasesRewritten {
+			if err := s.writeLeases(filteredLeases); err != nil {
+				return err
+			}
+		}
+		persistErr := s.persistGraphDelta(g, dirty, []NodeID{id})
+		if !authoritativeCommitSucceeded(persistErr) {
+			if leasesRewritten {
+				_ = s.writeLeases(oldLeases)
+			}
+			return persistErr
+		}
+		for _, event := range leaseEvents {
+			_ = s.appendResourceEvent(event)
+		}
 		s.bestEffortSnapshot("delete_node")
 		return nil
 	})
+}
+
+// filterNodeLeases returns a copy of leases without nodeID and the historical
+// events that should be appended after the authoritative mutation commits.
+func filterNodeLeases(leases []ResourceLease, nodeID NodeID, action ResourceEventAction) ([]ResourceLease, []ResourceEvent) {
+	filtered := make([]ResourceLease, 0, len(leases))
+	events := make([]ResourceEvent, 0)
+	for _, lease := range leases {
+		if lease.NodeID != nodeID {
+			filtered = append(filtered, lease)
+			continue
+		}
+		events = append(events, ResourceEvent{
+			ResourceID: lease.ResourceID,
+			NodeID:     lease.NodeID,
+			Action:     action,
+			Mode:       lease.Mode,
+			ClaimedBy:  lease.ClaimedBy,
+			Note:       lease.Note,
+			Timestamp:  nowUTC(),
+		})
+	}
+	return filtered, events
 }
 
 // migrateStorageFormat converts between json and binary storage formats.
@@ -173,7 +315,7 @@ func (s *Store) migrateStorageFormat(target StorageFormat) error {
 			s.format = old
 			return err
 		}
-		if err := s.persistGraph(g); err != nil {
+		if err := s.persistGraph(g); !authoritativeCommitSucceeded(err) {
 			s.format = old
 			return err
 		}
@@ -193,34 +335,193 @@ func (s *Store) migrateStorageFormat(target StorageFormat) error {
 		} else {
 			_ = os.Remove(s.nodesBinPath())
 			_ = os.Remove(s.nodesIdxPath())
+			_ = os.Remove(s.binaryGenerationPath())
 		}
 		s.bestEffortSnapshot("migrate_post")
 		return nil
 	})
 }
 
-// embedArtifact copies a local file into the research root and registers it.
+// embedArtifact copies a local file into the research root and registers it as
+// one locked logical mutation. The payload is staged to a unique temporary file
+// and never truncates an existing embedded artifact.
 func (s *Store) embedArtifact(id NodeID, localPath string, description string) error {
 	finfo, err := os.Stat(localPath)
 	if err != nil {
 		return err
 	}
-	dstDir := filepath.Join(s.artifactsDir(), fmt.Sprintf("%04d", id))
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+	if !finfo.Mode().IsRegular() {
+		return fmt.Errorf("%w: embedded artifact source must be a regular file", ErrInvalidArtifact)
+	}
+	return s.withLock("embed_artifact", func() error {
+		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
+			return err
+		}
+		g, err := s.loadGraph()
+		if err != nil {
+			return err
+		}
+		existing, err := g.GetNode(id)
+		if err != nil {
+			return err
+		}
+
+		dstDir := filepath.Join(s.artifactsDir(), fmt.Sprintf("%04d", id))
+		if err := os.MkdirAll(dstDir, 0o755); err != nil {
+			return err
+		}
+		base := filepath.Base(localPath)
+		dstPath := filepath.Join(dstDir, base)
+		if _, err := os.Stat(dstPath); err == nil {
+			return fmt.Errorf("%w: embedded artifact %q already exists", ErrInvalidArtifact, base)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		tmp, err := os.CreateTemp(dstDir, ".embed-*.tmp")
+		if err != nil {
+			return err
+		}
+		tmpPath := tmp.Name()
+		cleanupTmp := true
+		defer func() {
+			_ = tmp.Close()
+			if cleanupTmp {
+				_ = os.Remove(tmpPath)
+			}
+		}()
+		src, err := os.Open(localPath)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(tmp, src)
+		closeSrcErr := src.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeSrcErr != nil {
+			return closeSrcErr
+		}
+		if err := tmp.Sync(); err != nil {
+			return err
+		}
+		if err := tmp.Close(); err != nil {
+			return err
+		}
+
+		artifact := Artifact{
+			Mode:        ArtifactEmbedded,
+			Path:        filepath.ToSlash(filepath.Join("artifacts", fmt.Sprintf("%04d", id), base)),
+			Description: description,
+			SizeBytes:   finfo.Size(),
+		}
+		if err := ValidateArtifact(artifact); err != nil {
+			return err
+		}
+		candidate := CloneNode(existing)
+		candidate.Artifacts = append(candidate.Artifacts, artifact)
+		candidate.Modified = nowUTC()
+		candidate.Revision = existing.Revision + 1
+		ApplyNodeDefaults(candidate, candidate.Created)
+		if err := g.UpdateNode(id, candidate); err != nil {
+			return err
+		}
+		if err := s.saveNodeHistory(existing); err != nil {
+			return err
+		}
+		txnPath, err := s.writeEmbedTransaction(embedTransaction{NodeID: id, ArtifactPath: artifact.Path})
+		if err != nil {
+			return err
+		}
+		clearTransaction := false
+		defer func() {
+			if clearTransaction {
+				_ = os.Remove(txnPath)
+			}
+		}()
+		if err := os.Rename(tmpPath, dstPath); err != nil {
+			clearTransaction = true
+			return err
+		}
+		cleanupTmp = false
+		if err := s.persistGraphDelta(g, map[NodeID]struct{}{id: {}}, nil); !authoritativeCommitSucceeded(err) {
+			if removeErr := os.Remove(dstPath); removeErr == nil || os.IsNotExist(removeErr) {
+				clearTransaction = true
+			}
+			return err
+		}
+		clearTransaction = true
+		s.bestEffortSnapshot("embed_artifact")
+		return nil
+	})
+}
+
+// writeEmbedTransaction records enough information to reconcile a crash
+// between publishing an embedded payload and publishing its node metadata.
+func (s *Store) writeEmbedTransaction(txn embedTransaction) (string, error) {
+	token, err := newLockToken()
+	if err != nil {
+		return "", err
+	}
+	b, err := json.Marshal(txn)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(s.rootPath, embedTransactionPrefix+token+".json")
+	if err := os.WriteFile(path, append(b, '\n'), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// reconcileArtifactTransactionsLocked removes orphaned payloads left by an
+// interrupted embed, or only the journal when node metadata already committed.
+// The caller must hold the store lock.
+func (s *Store) reconcileArtifactTransactionsLocked(g *Graph) error {
+	entries, err := os.ReadDir(s.rootPath)
+	if err != nil {
 		return err
 	}
-	base := filepath.Base(localPath)
-	dstPath := filepath.Join(dstDir, base)
-	if err := copyFile(localPath, dstPath); err != nil {
-		return err
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), embedTransactionPrefix) || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		journalPath := filepath.Join(s.rootPath, entry.Name())
+		b, err := os.ReadFile(journalPath)
+		if err != nil {
+			return err
+		}
+		var txn embedTransaction
+		if err := decodeJSONStrict(b, &txn); err != nil {
+			return fmt.Errorf("invalid embed transaction %s: %w", entry.Name(), err)
+		}
+		cleanArtifactPath := filepath.ToSlash(filepath.Clean(filepath.FromSlash(txn.ArtifactPath)))
+		expectedPrefix := filepath.ToSlash(filepath.Join("artifacts", fmt.Sprintf("%04d", txn.NodeID))) + "/"
+		if txn.NodeID == 0 || cleanArtifactPath != txn.ArtifactPath || !strings.HasPrefix(cleanArtifactPath, expectedPrefix) || pathEscapesRoot(cleanArtifactPath) {
+			return fmt.Errorf("invalid embed transaction %s: unsafe artifact path", entry.Name())
+		}
+		committed := false
+		if node := g.Nodes[txn.NodeID]; node != nil {
+			committed = slices.ContainsFunc(node.Artifacts, func(artifact Artifact) bool {
+				return artifact.Mode == ArtifactEmbedded && artifact.Path == txn.ArtifactPath
+			})
+		}
+		if !committed {
+			payloadPath := filepath.Join(s.rootPath, filepath.FromSlash(cleanArtifactPath))
+			if err := os.Remove(payloadPath); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+		if err := os.Remove(journalPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
-	artifact := Artifact{
-		Mode:        ArtifactEmbedded,
-		Path:        filepath.ToSlash(filepath.Join("artifacts", fmt.Sprintf("%04d", id), base)),
-		Description: description,
-		SizeBytes:   finfo.Size(),
-	}
-	return s.AddArtifact(id, artifact)
+	return nil
+}
+
+// pathEscapesRoot rejects absolute and parent-traversing persisted paths.
+func pathEscapesRoot(path string) bool {
+	clean := filepath.Clean(filepath.FromSlash(path))
+	return filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
 // copyFile copies a file from src to dst.
@@ -296,7 +597,7 @@ func (s *Store) invalidateClaim(target NodeID, refuter NodeID, reason string) er
 		if _, err := s.listBranchWarnings("", false); err != nil {
 			return err
 		}
-		if err := s.persistGraphDelta(g, map[NodeID]struct{}{target: {}}, nil); err != nil {
+		if err := s.persistGraphDelta(g, map[NodeID]struct{}{target: {}}, nil); !authoritativeCommitSucceeded(err) {
 			return err
 		}
 		s.bestEffortInvalidationWarnings(g, target)

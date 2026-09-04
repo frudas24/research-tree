@@ -30,13 +30,37 @@ func openStore(rootPath string) (*Store, error) {
 	if s.format != StorageJSON && s.format != StorageBIN {
 		return nil, fmt.Errorf("%w: unknown storage format %q", ErrInvalidNode, s.format)
 	}
-	if err := s.ensureResourceLayout(); err != nil {
-		return nil, err
-	}
-	if err := s.ensureRelationsLayout(); err != nil {
-		return nil, err
-	}
-	if err := s.ensureFeaturesLayout(); err != nil {
+	// Opening may need to backfill legacy sidecars or recover an interrupted
+	// binary publication. All such writes are serialized like any other store
+	// mutation instead of happening lock-free during Open.
+	if err := s.withLock("open_reconcile", func() error {
+		if err := s.recoverBinaryPublicationLocked(); err != nil {
+			return err
+		}
+		if err := s.ensureResourceLayout(); err != nil {
+			return err
+		}
+		if err := s.ensureFeaturesLayout(); err != nil {
+			return err
+		}
+		need, err := s.derivedIndexesNeedRepair()
+		if err != nil {
+			return err
+		}
+		if need {
+			if err := s.repairDerivedIndexesLocked(); err != nil {
+				return err
+			}
+		}
+		g, err := s.loadGraphAllowLegacyDoneUnset()
+		if err != nil {
+			return err
+		}
+		if err := s.reconcileArtifactTransactionsLocked(g); err != nil {
+			return err
+		}
+		return s.reconcileInactiveLeasesLocked(g)
+	}); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -167,30 +191,20 @@ func (s *Store) ensureResourceLayout() error {
 	return nil
 }
 
-// ensureRelationsLayout backfills the relation index file for stores created
-// before typed node relations existed.
-func (s *Store) ensureRelationsLayout() error {
-	if _, err := os.Stat(s.relationsPath()); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	return os.WriteFile(s.relationsPath(), nil, 0o644)
-}
-
 // ensureFeaturesLayout backfills features.json and feature_edges.jsonl for
 // stores created before the feature lineage system existed.
 func (s *Store) ensureFeaturesLayout() error {
-	if _, err := os.Stat(s.featuresPath()); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.WriteFile(s.featuresPath(), []byte("{\"next_id\":1}\n"), 0o644); err != nil {
+	if _, err := os.Stat(s.featuresPath()); os.IsNotExist(err) {
+		if err := os.WriteFile(s.featuresPath(), []byte("{\"next_id\":1}\n"), 0o644); err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
 	if _, err := os.Stat(s.featureEdgesPath()); os.IsNotExist(err) {
 		return os.WriteFile(s.featureEdgesPath(), nil, 0o644)
+	} else if err != nil {
+		return err
 	}
 	return nil
 }
@@ -205,7 +219,7 @@ func (s *Store) readMeta() (metaInfo, error) {
 		return metaInfo{}, err
 	}
 	var m metaInfo
-	if err := json.Unmarshal(b, &m); err != nil {
+	if err := decodeJSONStrict(b, &m); err != nil {
 		return metaInfo{}, err
 	}
 	return m, nil
