@@ -14,9 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Binary generation publication failures trigger immediate in-lock recovery,
   matching index publication recovery and preventing lock-free reads from
   waiting on a recoverable `.nodes.dirty` marker.
-- Windows lock-free BIN readers now open node data, index, and generation files
-  with delete sharing so writers can replace them while read handles remain
-  active. Pre-commit replacement failures clear dirty and staging state.
+- Windows lock-free BIN readers use delete-sharing handles, while writers use
+  rename-by-handle POSIX replacement for node data, index, and generation
+  files. Pre-commit replacement failures clear dirty and staging state.
 - Embedded artifact journals are staged, synced, and atomically renamed before
   becoming visible; `Open` removes orphan payload and journal staging files.
 
