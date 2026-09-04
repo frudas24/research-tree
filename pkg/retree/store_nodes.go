@@ -132,14 +132,14 @@ func (s *Store) ensureBinIndexPresent() error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	bin, err := os.ReadFile(s.nodesBinPath())
+	binSize, err := binaryFileSize(s.nodesBinPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // no binary store yet; nothing to index
 		}
 		return err
 	}
-	if len(bin) > binHeaderSize {
+	if binSize > binHeaderSize {
 		return fmt.Errorf("bin index %s is missing but %s holds data; run RegenerateBinIndex (rt storage reindex) before writing", s.nodesIdxPath(), s.nodesBinPath())
 	}
 	return nil
@@ -163,7 +163,7 @@ func (s *Store) regenerateBinIndex() error {
 // scanBinIndex sequentially decodes every node payload in nodes.bin,
 // recomputing offsets, lengths, and CRC32 checksums for the index.
 func (s *Store) scanBinIndex() (map[NodeID]binIndexEntry, error) {
-	data, err := os.ReadFile(s.nodesBinPath())
+	data, err := readBinaryFile(s.nodesBinPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[NodeID]binIndexEntry{}, nil
@@ -203,7 +203,7 @@ func (s *Store) scanBinIndex() (map[NodeID]binIndexEntry, error) {
 
 // readBinIndex reads the binary index from nodes.idx.
 func (s *Store) readBinIndex() (map[NodeID]binIndexEntry, error) {
-	b, err := os.ReadFile(s.nodesIdxPath())
+	b, err := readBinaryFile(s.nodesIdxPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[NodeID]binIndexEntry{}, nil
@@ -293,7 +293,7 @@ func (s *Store) recoverBinaryPublicationLocked() error {
 // readBinaryGeneration returns the last completely published generation.
 // Missing generation files identify legacy stores and are represented by "".
 func (s *Store) readBinaryGeneration() (string, error) {
-	b, err := os.ReadFile(s.binaryGenerationPath())
+	b, err := readBinaryFile(s.binaryGenerationPath())
 	if os.IsNotExist(err) {
 		return "", nil
 	}
@@ -397,7 +397,7 @@ func (s *Store) loadAllNodesBINOnce() ([]*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(s.nodesBinPath())
+	f, err := openBinaryRead(s.nodesBinPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -453,7 +453,7 @@ func (s *Store) loadAllNodesBINWithLegacyOutcomeToleranceOnce() ([]*Node, error)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(s.nodesBinPath())
+	f, err := openBinaryRead(s.nodesBinPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -549,7 +549,7 @@ func (s *Store) getNodeBINOnce(id NodeID) (*Node, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	f, err := os.Open(s.nodesBinPath())
+	f, err := openBinaryRead(s.nodesBinPath())
 	if err != nil {
 		return nil, err
 	}
@@ -931,6 +931,12 @@ func (s *Store) writeAllNodesBIN(nodes []*Node) error {
 // writeAllNodesBINWithGenerationWriter publishes a binary node generation and
 // permits deterministic fault injection at the final generation write.
 func (s *Store) writeAllNodesBINWithGenerationWriter(nodes []*Node, writeGeneration func(string) error) error {
+	return s.writeAllNodesBINWithPublishers(nodes, os.Rename, writeGeneration)
+}
+
+// writeAllNodesBINWithPublishers publishes a binary generation while
+// permitting deterministic fault injection at both publication boundaries.
+func (s *Store) writeAllNodesBINWithPublishers(nodes []*Node, renameBinary func(string, string) error, writeGeneration func(string) error) error {
 	var buf bytes.Buffer
 	WriteBinHeader(&buf)
 	idx := make(map[NodeID]binIndexEntry, len(nodes))
@@ -975,8 +981,12 @@ func (s *Store) writeAllNodesBINWithGenerationWriter(nodes []*Node, writeGenerat
 		_ = os.Remove(tmpIdx)
 		return err
 	}
-	if err := os.Rename(tmpBin, s.nodesBinPath()); err != nil {
-		return err
+	if err := renameBinary(tmpBin, s.nodesBinPath()); err != nil {
+		cleanupErr := s.abortBinaryPublication(tmpBin, tmpIdx)
+		if cleanupErr != nil {
+			return fmt.Errorf("publish binary data: %w; abort publication: %v", err, cleanupErr)
+		}
+		return fmt.Errorf("publish binary data: %w", err)
 	}
 	if err := os.Rename(tmpIdx, s.nodesIdxPath()); err != nil {
 		// nodes.bin is authoritative once renamed. Attempt immediate recovery so
@@ -997,6 +1007,18 @@ func (s *Store) writeAllNodesBINWithGenerationWriter(nodes []*Node, writeGenerat
 	// pair invalid; it only forces the next Open through deterministic reindex.
 	_ = os.Remove(s.binaryDirtyPath())
 	return nil
+}
+
+// abortBinaryPublication removes staging and dirty state after a failure that
+// occurred before nodes.bin became authoritative.
+func (s *Store) abortBinaryPublication(tmpBin, tmpIdx string) error {
+	var errs []error
+	for _, path := range []string{tmpBin, tmpIdx, s.binaryDirtyPath()} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("remove %s: %w", filepath.Base(path), err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // regenerateEdgesFromGraph reconstructs edges.jsonl from the graph.

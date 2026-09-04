@@ -308,6 +308,65 @@ func TestConcurrentBinaryReadersObserveCompleteGenerations(t *testing.T) {
 	}
 }
 
+// TestBinaryWriterReplacesFilesHeldByReaders verifies lock-free reader handles
+// permit replacement of BIN, IDX, and generation files on every platform.
+func TestBinaryWriterReplacesFilesHeldByReaders(t *testing.T) {
+	s := mustInit(t, StorageBIN)
+	first := &Node{Frontmatter: Frontmatter{Title: "first"}}
+	mustNoErr(t, s.CreateNode(first))
+
+	paths := []string{s.nodesBinPath(), s.nodesIdxPath(), s.binaryGenerationPath()}
+	files := make([]*os.File, 0, len(paths))
+	for _, path := range paths {
+		file, err := openBinaryRead(path)
+		mustNoErr(t, err)
+		files = append(files, file)
+	}
+	defer func() {
+		for _, file := range files {
+			_ = file.Close()
+		}
+	}()
+
+	second := &Node{Frontmatter: Frontmatter{ID: 2, Title: "second"}}
+	ApplyNodeDefaults(second, nowUTC())
+	mustNoErr(t, s.writeAllNodesBIN([]*Node{first, second}))
+	got, err := s.GetNode(second.ID)
+	mustNoErr(t, err)
+	if got.Title != second.Title {
+		t.Fatalf("replacement returned wrong node: %+v", got)
+	}
+}
+
+// TestBinaryPreCommitFailureClearsDirtyState verifies a failed nodes.bin
+// replacement cannot leave readers waiting on a publication that never began.
+func TestBinaryPreCommitFailureClearsDirtyState(t *testing.T) {
+	s := mustInit(t, StorageBIN)
+	first := &Node{Frontmatter: Frontmatter{Title: "first"}}
+	mustNoErr(t, s.CreateNode(first))
+	second := &Node{Frontmatter: Frontmatter{ID: 2, Title: "second"}}
+	ApplyNodeDefaults(second, nowUTC())
+
+	renameErr := errors.New("injected pre-commit rename failure")
+	err := s.writeAllNodesBINWithPublishers([]*Node{first, second}, func(string, string) error {
+		return renameErr
+	}, s.writeBinaryGeneration)
+	if !errors.Is(err, renameErr) {
+		t.Fatalf("expected injected rename failure, got %v", err)
+	}
+	for _, path := range []string{s.binaryDirtyPath(), s.nodesBinPath() + ".tmp", s.nodesIdxPath() + ".pair.tmp"} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("pre-commit staging survived at %s: %v", path, err)
+		}
+	}
+	if _, err := s.GetNode(first.ID); err != nil {
+		t.Fatalf("existing generation became unreadable: %v", err)
+	}
+	if _, err := s.GetNode(second.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("failed pre-commit node became visible: %v", err)
+	}
+}
+
 // TestFeatureCurrentNodeMustBeLinked rejects an existing but unrelated node.
 func TestFeatureCurrentNodeMustBeLinked(t *testing.T) {
 	s := mustInit(t, StorageJSON)
