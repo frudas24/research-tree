@@ -127,21 +127,32 @@ operationally unsafe.
 ## Concurrency model
 
 - **Writes:** lockfile (O_EXCL) + bounded retry (100ms × 10s timeout) + stale takeover (30s)
-- **Reads:** lock-free
-- **Atomicity:** write to `.tmp` → `os.Rename` for all persistent state
+- **Reads:** lock-free. Binary readers use `.nodes.generation` as a seqlock and
+  retry when the generation changes or `.nodes.dirty` appears during the read,
+  so they never return a mixed `nodes.bin` / `nodes.idx` generation.
+- **Atomic publication:** individual files use `.tmp` → `os.Rename`. Multi-file
+  publications are guarded by recovery markers: `.nodes.dirty` for the binary
+  data/index pair and `.derived.dirty` for rebuildable edge/relation indexes.
 - **Snapshots:** automatic tar.gz after each mutation, rolling retention of 3
 
 ## Storage trade-offs (intentional)
 
 - **JSON mode writes are delta-based.** Creating/updating a node rewrites
-  only that node's file; a forced delete also rewrites the orphaned
-  children. This avoids the old delete-all-then-rewrite crash window. Each
-  file write remains atomic (`.tmp` + rename).
-- **Binary mode rewrites the whole `nodes.bin` atomically** on every
-  mutation. This is deliberate: the file stays bounded, the single rename is
-  crash-safe, and the per-write cost is O(store size), which is acceptable
-  for a personal tool. `nodes.idx` is rebuildable from `nodes.bin` via
-  `rt storage reindex` if it is ever lost or corrupted.
+  only that node's file; a forced delete rewrites surviving children first
+  and deletes removed nodes afterwards. A crash can therefore leave an extra
+  old parent, but not a surviving child that suddenly references a vanished
+  parent. Each file publication remains atomic (`.tmp` + rename).
+- **Binary mode rewrites the whole node set** on every mutation. `nodes.bin`
+  and `nodes.idx` are fully staged before publication, then a `.nodes.dirty`
+  marker guards the two renames. Readers verify the stable generation before
+  and after reading; `Open` can rebuild the index from the published binary,
+  publish the recovered generation, and clear an interrupted marker. This
+  keeps the pair recoverable without taking read locks.
+- **Derived indexes are repairable projections.** `edges.jsonl` and
+  `relations.jsonl` are regenerated from authoritative node state. A
+  `.derived.dirty` marker makes an interrupted projection update explicit;
+  `Open` repairs missing/dirty projections and audits require exact agreement
+  with the node graph.
 - **Snapshots run after every mutation** and pack the whole root, so the
   cost of a mutation scales with the store size — embedded artifacts make
   this heavier. The 3-snapshot rolling retention bounds disk usage. If a

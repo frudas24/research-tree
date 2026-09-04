@@ -71,18 +71,36 @@ access by NodeID with CRC32 checksum.
 - Retention: last 3 snapshots, older ones are deleted
 - Restore: decompresses snapshot to temporary directory, replaces root content
 
-## Atomicity
+## Atomicity and recovery
 
-All writes follow the pattern:
-1. Write to `.tmp`
+Single-file publications follow the pattern:
+1. Write to a temporary file
 2. `os.Rename(tmp, final)` — atomic on the same filesystem
 
-This applies to: `meta.json`, `nodes.bin`, `nodes.idx`, `edges.jsonl`,
-`next_id`, `alerts.jsonl`, `agents.json`, `manifest.json`, and individual
-JSON node files.
+This covers metadata, counters, registries, manifests, derived JSONL files,
+and individual JSON node files. Logical operations that span multiple files
+add explicit recovery discipline:
 
-## Edge index
+- In JSON mode a forced delete publishes rewritten surviving children before
+  removing the old parent files, so an interrupted delete fails on the side
+  of extra state rather than a dangling structural parent reference.
+- In binary mode `nodes.bin` and `nodes.idx` are staged as a pair and guarded
+  by `.nodes.dirty`; `.nodes.generation` provides seqlock validation across the
+  complete lock-free read. `Open` can regenerate an interrupted index from the
+  binary and publish the recovered generation.
+- `edges.jsonl` and `relations.jsonl` are derived from authoritative node
+  state. `.derived.dirty` records an interrupted derived publication, and
+  `Open` repairs missing/dirty indexes under the store lock. Audits compare
+  the indexes exactly with the node graph.
 
-`edges.jsonl` is a derived index that regenerates from the graph on each
-`persistGraph`. Can be manually rebuilt with `s.RegenerateEdges()`.
-Each line is a JSON object with `from` and `to` (NodeID).
+## Derived indexes
+
+`edges.jsonl` and `relations.jsonl` are rebuildable projections of node state.
+They regenerate after authoritative mutations and can be manually rebuilt via
+`RegenerateEdges()` / `RegenerateRelations()`. Public regeneration runs under
+the store write lock so an old graph snapshot cannot overwrite a newer index.
+
+Embedded artifact publication is journaled with a temporary
+`.embed-transaction-*.json` record. `Open` removes a payload that was published
+before its node metadata committed, or clears the journal when both sides are
+already consistent.

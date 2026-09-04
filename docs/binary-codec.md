@@ -94,16 +94,22 @@ All multi-byte integers are **little-endian**. Strings are UTF-8.
 
 ## Reading
 
-1. Open `nodes.bin`, read 8-byte header, validate magic `RTND` and a supported version (`1` or `2`)
-2. Read `nodes.idx` to get offset/length/checksum per NodeID
-3. For each node: seek to offset, read length bytes, verify CRC32, decode
+1. Wait while `.nodes.dirty` is present and capture `.nodes.generation`
+2. Open `nodes.bin`, read 8-byte header, validate magic `RTND` and a supported version (`1` or `2`)
+3. Read `nodes.idx` to get offset/length/checksum per NodeID
+4. For each node: seek to offset, read length bytes, verify CRC32, decode
+5. Recheck `.nodes.dirty` and `.nodes.generation`; retry the complete read if a writer overlapped it
 
 ## Writing
 
-1. Write 8-byte header (`RTND` + v2 + zeros)
-2. For each node: encode, append to buffer, record offset/length/CRC32
-3. Write buffer to `nodes.bin.tmp`, rename to `nodes.bin`
-4. Write index to `nodes.idx.tmp`, rename to `nodes.idx`
+1. Build the complete 8-byte header (`RTND` + v2 + zeros), encoded node payloads, offsets, lengths, and CRC32 values in memory
+2. Stage the complete binary as `nodes.bin.tmp` and the complete index as `nodes.idx.pair.tmp`
+3. Publish `.nodes.dirty` to mark the pair as in-flight
+4. Rename the staged binary to `nodes.bin`, then the staged index to `nodes.idx`
+5. Atomically publish the generation token to `.nodes.generation`
+6. Remove `.nodes.dirty`
+
+If a process dies between the two pair renames, the marker remains. `Open` scans the published `nodes.bin`, rebuilds `nodes.idx`, publishes the recovered generation, and clears the marker before normal use. The persistent generation check closes the check/read race that a marker-only protocol would leave open.
 
 ## Extensibility
 
