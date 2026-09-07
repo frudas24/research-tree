@@ -12,6 +12,16 @@ func Open(rootPath string) (*Store, error) {
 	return openStore(rootPath)
 }
 
+// RecoverBinIndex rebuilds a damaged or missing index without requiring Open
+// to load it first. Metadata validation and the normal writer lock still apply.
+func RecoverBinIndex(rootPath string) error {
+	s, err := readStoreMetadata(rootPath)
+	if err != nil {
+		return err
+	}
+	return s.RegenerateBinIndex()
+}
+
 // Init creates a new research-root at rootPath.
 func Init(rootPath string, format StorageFormat) (*Store, error) {
 	return initStore(rootPath, format)

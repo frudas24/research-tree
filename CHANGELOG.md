@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Mutations revalidate storage metadata under the writer lock and reject stale
+  handles after another instance migrates the format; reopen before retrying.
+- Node and graph reads check the format before and after loading and return
+  `ErrStaleStore` after migration instead of empty results or false not-found.
+- Artifact recovery preserves registered files named like `.embed-*.tmp`.
+- `rt storage reindex` uses a metadata-only recovery entry point so a missing
+  or corrupt `nodes.idx` cannot block its own repair.
 - The TypeScript FFI bridge resolves `.so`, `.dylib`, and Windows `.dll`
   libraries by platform, supports `RETREE_LIBRARY_PATH`, and recognizes both
   release and local Makefile DLL names.

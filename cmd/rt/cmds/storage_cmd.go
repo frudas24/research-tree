@@ -35,14 +35,7 @@ stores remain readable with an intact index, but rebuilding their index is
 intentionally rejected because the old concatenated payloads are not
 delimited safely enough for forensic recovery.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, err := openStore(opts)
-			if err != nil {
-				return err
-			}
-			if store.StorageFormat() != retree.StorageBIN {
-				return fmt.Errorf("reindex only applies to bin storage format (current: %s)", store.StorageFormat())
-			}
-			if err := store.RegenerateBinIndex(); err != nil {
+			if err := retree.RecoverBinIndex(opts.ResearchRoot); err != nil {
 				return err
 			}
 			return printMaybeJSON(cmd, opts.OutputJSON, map[string]any{"index": "rebuilt"}, "binary index rebuilt")
