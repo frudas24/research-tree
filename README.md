@@ -329,8 +329,16 @@ instead of returning a misleading partial-clean report.
 
 ### Recent updates
 
-As of `v0.5.1`, the main user-visible changes are:
+As of `v0.5.2`, the main user-visible changes are:
 
+- stale store handles are rejected after a format migration instead of reading
+  empty results or false not-found; reopen before retrying
+- `rt storage reindex` recovers a missing or corrupt `nodes.idx` through a
+  metadata-only path so the damage cannot block its own repair
+- artifact recovery preserves registered files whose names resemble staging
+  patterns
+- the TypeScript FFI bridge resolves `.so`, `.dylib`, and Windows `.dll`
+  libraries by platform and honors `RETREE_LIBRARY_PATH`
 - concurrent additive mutations preserve updates from every agent, while stale
   full-node replacements fail with an explicit revision conflict
 - binary stores use recoverable BIN/IDX publication plus generation-checked
