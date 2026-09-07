@@ -3,6 +3,8 @@ package retree
 import "errors"
 
 var (
+	// ErrStaleStore requires reopening a handle after the storage format changes.
+	ErrStaleStore = errors.New("stale store storage format")
 	// ErrNotFound is returned when a node or resource does not exist.
 	ErrNotFound = errors.New("not found")
 	// ErrUnsupportedSchema is returned when schema_version is not supported.

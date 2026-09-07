@@ -67,6 +67,11 @@ func (s *Store) loadGraphAllowLegacyDoneUnset() (*Graph, error) {
 
 // loadAllNodes loads all nodes from disk, dispatching by storage format.
 func (s *Store) loadAllNodes() ([]*Node, error) {
+	return withCurrentStorageRead(s, s.loadAllNodesCurrentFormat)
+}
+
+// loadAllNodesCurrentFormat dispatches after the caller has checked metadata.
+func (s *Store) loadAllNodesCurrentFormat() ([]*Node, error) {
 	if s.format == StorageJSON {
 		return s.loadAllNodesJSON()
 	}
@@ -76,6 +81,11 @@ func (s *Store) loadAllNodes() ([]*Node, error) {
 // loadAllNodesAllowLegacyDoneUnset loads nodes while tolerating the historical
 // done+unset pattern so repair tooling can inspect and upgrade old stores.
 func (s *Store) loadAllNodesAllowLegacyDoneUnset() ([]*Node, error) {
+	return withCurrentStorageRead(s, s.loadAllNodesLegacyCurrentFormat)
+}
+
+// loadAllNodesLegacyCurrentFormat dispatches legacy reads after metadata checks.
+func (s *Store) loadAllNodesLegacyCurrentFormat() ([]*Node, error) {
 	if s.format == StorageJSON {
 		return s.loadAllNodesJSONWithLegacyOutcomeTolerance()
 	}
@@ -504,10 +514,12 @@ func (s *Store) loadAllNodesBINWithLegacyOutcomeToleranceOnce() ([]*Node, error)
 // getNode returns a single node by ID without scanning the full store.
 // JSON mode reads the node's own file; binary mode uses the index + CRC.
 func (s *Store) getNode(id NodeID) (*Node, error) {
-	if s.format == StorageJSON {
-		return s.getNodeJSON(id)
-	}
-	return s.getNodeBIN(id)
+	return withCurrentStorageRead(s, func() (*Node, error) {
+		if s.format == StorageJSON {
+			return s.getNodeJSON(id)
+		}
+		return s.getNodeBIN(id)
+	})
 }
 
 // getNodeJSON reads one node file directly.

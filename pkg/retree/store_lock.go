@@ -35,6 +35,11 @@ func (s *Store) withLock(operation string, fn func() error) error {
 		return err
 	}
 	defer release()
+	// Another instance may have migrated the store while this handle was idle.
+	// Reject before recovery or mutation can write into the obsolete format.
+	if err := s.validateCurrentStorageFormat(); err != nil {
+		return err
+	}
 	// A previous binary writer may have committed nodes.bin but crashed before
 	// publishing nodes.idx. Recover while this writer owns the store lock so the
 	// same Store instance does not wait on its own stale publication marker.

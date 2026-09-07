@@ -16,8 +16,46 @@ type metaInfo struct {
 	CreatedAt     time.Time     `json:"created_at"`
 }
 
+// validateCurrentStorageFormat rejects handles opened before a format change.
+func (s *Store) validateCurrentStorageFormat() error {
+	meta, err := s.readMeta()
+	if err != nil {
+		return err
+	}
+	if meta.SchemaVersion != CurrentSchemaVersion {
+		return fmt.Errorf("%w: got=%d want=%d", ErrUnsupportedSchema, meta.SchemaVersion, CurrentSchemaVersion)
+	}
+	if meta.StorageFormat != s.format {
+		return fmt.Errorf("%w: changed from %s to %s; reopen the store", ErrStaleStore, s.format, meta.StorageFormat)
+	}
+	return nil
+}
+
+// withCurrentStorageRead checks metadata before and after reading, including
+// failed reads, so migration cannot turn an existing node into apparent absence.
+func withCurrentStorageRead[T any](s *Store, read func() (T, error)) (T, error) {
+	var zero T
+	if err := s.validateCurrentStorageFormat(); err != nil {
+		return zero, err
+	}
+	value, readErr := read()
+	if err := s.validateCurrentStorageFormat(); err != nil {
+		return zero, err
+	}
+	return value, readErr
+}
+
 // openStore opens an existing research root at rootPath.
 func openStore(rootPath string) (*Store, error) {
+	s, err := readStoreMetadata(rootPath)
+	if err != nil {
+		return nil, err
+	}
+	return reconcileOpenedStore(s)
+}
+
+// readStoreMetadata validates the store identity without loading node indexes.
+func readStoreMetadata(rootPath string) (*Store, error) {
 	s := &Store{rootPath: rootPath}
 	meta, err := s.readMeta()
 	if err != nil {
@@ -30,6 +68,11 @@ func openStore(rootPath string) (*Store, error) {
 	if s.format != StorageJSON && s.format != StorageBIN {
 		return nil, fmt.Errorf("%w: unknown storage format %q", ErrInvalidNode, s.format)
 	}
+	return s, nil
+}
+
+// reconcileOpenedStore completes normal opening under the mutation lock.
+func reconcileOpenedStore(s *Store) (*Store, error) {
 	// Opening may need to backfill legacy sidecars or recover an interrupted
 	// binary publication. All such writes are serialized like any other store
 	// mutation instead of happening lock-free during Open.

@@ -281,10 +281,10 @@ func (s *Store) migrateStorageFormat(target StorageFormat) error {
 	if target != StorageJSON && target != StorageBIN {
 		return fmt.Errorf("%w: invalid format %q", ErrInvalidNode, target)
 	}
-	if target == s.format {
-		return nil
-	}
 	return s.withLock("migrate_storage_format", func() error {
+		if target == s.format {
+			return nil
+		}
 		if err := s.ensureSnapshotCatalogHealthy(); err != nil {
 			return err
 		}
