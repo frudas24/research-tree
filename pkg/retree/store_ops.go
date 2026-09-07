@@ -506,7 +506,7 @@ func (s *Store) writeEmbedTransaction(txn embedTransaction) (string, error) {
 // interrupted embed, or only the journal when node metadata already committed.
 // The caller must hold the store lock.
 func (s *Store) reconcileArtifactTransactionsLocked(g *Graph) error {
-	if err := s.cleanupArtifactStagingFilesLocked(); err != nil {
+	if err := s.cleanupArtifactStagingFilesLocked(g); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(s.rootPath)
@@ -559,7 +559,15 @@ func (s *Store) reconcileArtifactTransactionsLocked(g *Graph) error {
 // cleanupArtifactStagingFilesLocked removes payload staging files left by a
 // process that died before publishing an embed transaction. The caller must
 // hold the store lock.
-func (s *Store) cleanupArtifactStagingFilesLocked() error {
+func (s *Store) cleanupArtifactStagingFilesLocked(g *Graph) error {
+	// Published filenames are user-controlled and can resemble staging names.
+	// Protect every registered path, including references from other nodes.
+	registered := make(map[string]struct{})
+	for _, node := range g.Nodes {
+		for _, artifact := range node.Artifacts {
+			registered[filepath.Clean(filepath.Join(s.rootPath, filepath.FromSlash(artifact.Path)))] = struct{}{}
+		}
+	}
 	return filepath.WalkDir(s.artifactsDir(), func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			if os.IsNotExist(walkErr) {
@@ -568,6 +576,9 @@ func (s *Store) cleanupArtifactStagingFilesLocked() error {
 			return walkErr
 		}
 		if entry.IsDir() {
+			return nil
+		}
+		if _, ok := registered[filepath.Clean(path)]; ok {
 			return nil
 		}
 		name := entry.Name()
