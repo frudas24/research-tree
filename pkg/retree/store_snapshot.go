@@ -125,6 +125,12 @@ func (s *Store) packSnapshot(dst string) error {
 		if rel == "." {
 			return nil
 		}
+		// The sidecar skip is conditional on separation, unlike the .state skip
+		// below, and the asymmetry is deliberate: a legacy root is still the live
+		// runtime location, so its sidecars must travel inside the archive for a
+		// later restore into a separate root to migrate them. A separated root
+		// keeps those same files at the root as migrated copies only, so packing
+		// them would resurrect stale runtime state on restore.
 		if s.runtimePath != s.rootPath {
 			for _, name := range runtimeSidecars {
 				if rel == name {
@@ -132,8 +138,13 @@ func (s *Store) packSnapshot(dst string) error {
 				}
 			}
 		}
+		// .state is skipped unconditionally: it is runtime state for whichever
+		// root packs the archive, never research content.
 		if rel == ".state" {
 			return filepath.SkipDir
+		}
+		if isStagingTemporary(rel) {
+			return nil
 		}
 		if strings.HasPrefix(rel, "snapshots") || rel == "lock" || rel == ".lock.guard" {
 			return nil
@@ -177,6 +188,25 @@ func (s *Store) packSnapshot(dst string) error {
 		return walkErr
 	}
 	return closeErr
+}
+
+// isStagingTemporary reports whether a snapshot-relative path is a write-staging
+// file created by the store for an atomic publication. Every root-level *.tmp
+// file is such a staging artifact (meta.json.tmp, next_id.tmp, lock.tmp,
+// nodes.bin.tmp, nodes.idx.pair.tmp, .nodes.dirty.tmp, .embed-*.json.tmp, ...),
+// and nodes/ stages per-node payloads as NNNN.json.tmp. Both are leftovers of an
+// interrupted publication: they are never authoritative and must not be
+// restored as content. Embedded artifacts may legitimately be named *.tmp, so
+// only these store-owned locations are excluded.
+func isStagingTemporary(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	if !strings.HasSuffix(rel, ".tmp") {
+		return false
+	}
+	if !strings.Contains(rel, "/") {
+		return true
+	}
+	return strings.HasPrefix(rel, "nodes/")
 }
 
 // fileSHA256 computes the SHA-256 hash of a file.
@@ -312,6 +342,14 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 				return err
 			}
 		}
+		// From here the live root, including its runtime directory and lockfile, is
+		// briefly absent: the rename below moves it to rollbackDir and the cleanup
+		// removes that copy. The window is safe only because lock ownership is a
+		// token comparison — writeLockIfOwned and markLockReleasedIfOwned return
+		// early when the lockfile is missing, the staged root was pre-seeded with
+		// our token, and refreshLock only stops refreshing instead of failing.
+		// A hardened release rule that also required the pre-rename timestamp to
+		// match would self-block inside this window.
 		if err := renamePath(s.rootPath, rollbackDir); err != nil {
 			return err
 		}
