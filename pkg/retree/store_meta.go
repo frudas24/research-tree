@@ -18,6 +18,9 @@ type metaInfo struct {
 
 // validateCurrentStorageFormat rejects handles opened before a format change.
 func (s *Store) validateCurrentStorageFormat() error {
+	if err := s.validateRuntimeLayout(); err != nil {
+		return err
+	}
 	meta, err := s.readMeta()
 	if err != nil {
 		return err
@@ -56,7 +59,7 @@ func openStore(rootPath string) (*Store, error) {
 
 // readStoreMetadata validates the store identity without loading node indexes.
 func readStoreMetadata(rootPath string) (*Store, error) {
-	s := &Store{rootPath: rootPath}
+	s := &Store{rootPath: rootPath, runtimePath: runtimeDirectory(rootPath)}
 	meta, err := s.readMeta()
 	if err != nil {
 		return nil, err
@@ -117,7 +120,7 @@ func initStore(rootPath string, format StorageFormat) (*Store, error) {
 	if err := os.MkdirAll(rootPath, 0o755); err != nil {
 		return nil, err
 	}
-	s := &Store{rootPath: rootPath, format: format}
+	s := &Store{rootPath: rootPath, runtimePath: runtimeDirectory(rootPath), format: format}
 	if exists, err := s.isInitialized(); err != nil {
 		return nil, err
 	} else if exists {

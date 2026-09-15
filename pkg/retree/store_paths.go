@@ -18,13 +18,13 @@ func (s *Store) nodesBinPath() string { return filepath.Join(s.rootPath, "nodes.
 func (s *Store) nodesIdxPath() string { return filepath.Join(s.rootPath, "nodes.idx") }
 
 // binaryDirtyPath marks an in-progress binary pair publication.
-func (s *Store) binaryDirtyPath() string { return filepath.Join(s.rootPath, ".nodes.dirty") }
+func (s *Store) binaryDirtyPath() string { return s.runtimeFile(".nodes.dirty") }
 
 // binaryGenerationPath stores the last completely published binary generation.
-func (s *Store) binaryGenerationPath() string { return filepath.Join(s.rootPath, ".nodes.generation") }
+func (s *Store) binaryGenerationPath() string { return s.runtimeFile(".nodes.generation") }
 
 // derivedDirtyPath marks parent/relation indexes that need regeneration.
-func (s *Store) derivedDirtyPath() string { return filepath.Join(s.rootPath, ".derived.dirty") }
+func (s *Store) derivedDirtyPath() string { return s.runtimeFile(".derived.dirty") }
 
 // edgesPath returns the path to edges.jsonl.
 func (s *Store) edgesPath() string { return filepath.Join(s.rootPath, "edges.jsonl") }
@@ -33,10 +33,10 @@ func (s *Store) edgesPath() string { return filepath.Join(s.rootPath, "edges.jso
 func (s *Store) nextIDPath() string { return filepath.Join(s.rootPath, "next_id") }
 
 // lockPath returns the path to the lockfile.
-func (s *Store) lockPath() string { return filepath.Join(s.rootPath, "lock") }
+func (s *Store) lockPath() string { return s.runtimeFile("lock") }
 
 // lockGuardPath returns the path to the guard file used to serialize lock-state transitions.
-func (s *Store) lockGuardPath() string { return filepath.Join(s.rootPath, ".lock.guard") }
+func (s *Store) lockGuardPath() string { return s.runtimeFile(".lock.guard") }
 
 // alertsPath returns the path to alerts.jsonl.
 func (s *Store) alertsPath() string { return filepath.Join(s.rootPath, "alerts.jsonl") }
