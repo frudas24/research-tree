@@ -329,7 +329,14 @@ instead of returning a misleading partial-clean report.
 
 ### Recent updates
 
-As of `v0.5.2`, the main user-visible changes are:
+As of `v0.5.3`, the main user-visible changes are:
+
+- runtime state (generation counter, dirty markers, guard and live logs) lives under
+  `<root>/.state/` instead of sharing `.research/` with research content, so a tree that
+  versions its history no longer commits run state by accident; `SeparateRuntime` opts a
+  root in, copies legacy content and publishes a `ready` marker as the commit point
+- unconverted trees keep the legacy layout: the store reads the runtime directory only
+  once a root has been converted
 
 - stale store handles are rejected after a format migration instead of reading
   empty results or false not-found; reopen before retrying

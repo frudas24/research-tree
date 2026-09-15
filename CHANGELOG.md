@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.3] - 2026-09-15
+
+### Added
+- `SeparateRuntime(root)` opts a tree into the harness-managed runtime layout: the runtime
+  sidecars (`.nodes.generation`, `.nodes.dirty`, `.derived.dirty`) move under
+  `<root>/.state/`, with a `ready` marker as the commit point. Legacy content is copied and
+  never removed, and an interrupted copy is repeated on the next call under the legacy
+  writer lock.
+
+### Changed
+- Runtime state no longer shares a directory with research content. A tree that versioned
+  `.research/` was committing run state - generation counter, dirty markers, guard and live
+  logs - alongside the research history it may legitimately want to track. The snapshot
+  writer already excluded that state from the logical snapshot; the two now live in
+  separate directories, and the store reads the runtime directory once a root has been
+  converted and the legacy root otherwise, so unconverted trees keep working unchanged.
+  No store format change, and an older binary must not write a converted root.
+
 ## [v0.5.2] - 2026-09-07
 
 ### Fixed
