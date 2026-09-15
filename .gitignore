@@ -33,5 +33,9 @@ third_party/golangci-lint/
 # Research tree storage
 .research/
 
+# Harness-managed research runtime state (see README "Harness-managed runtime
+# layout"); any store root inside this repo must stay out of version control.
+.state/
+
 # JS/TS tooling
 node_modules/

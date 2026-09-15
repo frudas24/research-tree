@@ -553,7 +553,8 @@ If you send a patch, include tests where practical and keep the DAG / provenance
 
 Embedders may call `retree.SeparateRuntime(root)` before `Init` or `Open` to keep
 locks, the binary generation counter and recovery markers in `root/.state/`.
-The harness must ignore `/.state/` in its repository policy. Normal `Open` detects
+The harness must ignore `/.state/` in its repository policy; this repository
+ignores `.state/` itself. Normal `Open` detects
 this layout automatically. Legacy roots remain readable without opting in.
 
 Conversion is idempotent and serialized by the legacy writer lock. Existing
