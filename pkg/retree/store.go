@@ -3,8 +3,9 @@ package retree
 // Store is the primary interface to a research-tree root on disk.
 // It provides CRUD for nodes, graph queries, filtering, artifact management, and tagging.
 type Store struct {
-	rootPath string
-	format   StorageFormat
+	rootPath    string
+	runtimePath string
+	format      StorageFormat
 }
 
 // Open opens an existing research-root at rootPath.

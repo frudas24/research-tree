@@ -541,3 +541,22 @@ This repository is published as a usable infrastructure artifact, not as a manag
 
 Small, well-scoped fixes are preferred over broad feature expansion.
 If you send a patch, include tests where practical and keep the DAG / provenance-first model intact.
+
+### Harness-managed runtime layout
+
+Embedders may call `retree.SeparateRuntime(root)` before `Init` or `Open` to keep
+locks, the binary generation counter and recovery markers in `root/.state/`.
+The harness must ignore `/.state/` in its repository policy. Normal `Open` detects
+this layout automatically. Legacy roots remain readable without opting in.
+
+Conversion is idempotent and serialized by the legacy writer lock. Existing
+sidecars are copied and retained; `ready` is published only after the copy.
+Interrupted copies are reconciled on retry. Nodes, edit history, snapshots, agent
+registrations, alerts, graph edges and resource history remain in place: these are
+durable research records, not disposable process logs. Stale in-process handles
+are rejected and must reopen. Do not run an older binary concurrently against a
+converted root; older releases cannot understand the new lock location.
+
+Snapshots omit `.state`, and restoring them preserves the selected runtime
+layout and active restore lock. Old tracked sidecars can be removed from the Git
+index by the owner after migration; conversion never rewrites Git history.

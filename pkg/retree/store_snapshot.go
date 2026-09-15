@@ -125,6 +125,16 @@ func (s *Store) packSnapshot(dst string) error {
 		if rel == "." {
 			return nil
 		}
+		if s.runtimePath != s.rootPath {
+			for _, name := range runtimeSidecars {
+				if rel == name {
+					return nil
+				}
+			}
+		}
+		if rel == ".state" {
+			return filepath.SkipDir
+		}
 		if strings.HasPrefix(rel, "snapshots") || rel == "lock" || rel == ".lock.guard" {
 			return nil
 		}
@@ -281,6 +291,11 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 		// Validate/reconcile staging before copying the live lock. Open now
 		// performs any legacy layout repair under its own lock; pre-seeding it
 		// with our still-live owner token would self-block the restore.
+		if s.runtimePath != "" && s.runtimePath != s.rootPath {
+			if err := SeparateRuntime(stagingDir); err != nil {
+				return err
+			}
+		}
 		staged, err := openStore(stagingDir)
 		if err != nil {
 			return err
@@ -293,7 +308,7 @@ func (s *Store) restoreSnapshot(snapshotID string) error {
 			return err
 		}
 		if err == nil {
-			if err := writeLockFile(filepath.Join(stagingDir, "lock"), lock); err != nil {
+			if err := writeLockFile(staged.lockPath(), lock); err != nil {
 				return err
 			}
 		}
