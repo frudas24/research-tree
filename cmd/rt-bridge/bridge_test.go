@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/frudas24/research-tree/cmd/rt-bridge/internal/bridgejson"
 	"github.com/frudas24/research-tree/pkg/retree"
 )
 
@@ -38,7 +39,7 @@ func TestBridgeMergeUpdate(t *testing.T) {
 	if err := json.Unmarshal([]byte(partialJSON), &partial); err != nil {
 		t.Fatal(err)
 	}
-	id, err := parsePartialNodeID(mustRawMap(t, partialJSON))
+	id, err := bridgejson.ParsePartialNodeID(mustRawMap(t, partialJSON))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestBridgeMergeUpdatePreservesMilestoneFields(t *testing.T) {
 	if err := json.Unmarshal([]byte(partialJSON), &partial); err != nil {
 		t.Fatal(err)
 	}
-	id, err := parsePartialNodeID(mustRawMap(t, partialJSON))
+	id, err := bridgejson.ParsePartialNodeID(mustRawMap(t, partialJSON))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +212,7 @@ func TestParsePartialNodeIDRejectsImpreciseJSON(t *testing.T) {
 		`{"id":9007199254740993}`,
 		`{"id":0}`,
 	} {
-		if _, err := parsePartialNodeID(mustRawMap(t, raw)); err == nil {
+		if _, err := bridgejson.ParsePartialNodeID(mustRawMap(t, raw)); err == nil {
 			t.Fatalf("expected invalid bridge node id for %s", raw)
 		}
 	}

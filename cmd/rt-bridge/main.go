@@ -17,12 +17,12 @@ import "C"
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"sync"
 	"unsafe"
 
+	"github.com/frudas24/research-tree/cmd/rt-bridge/internal/bridgejson"
 	"github.com/frudas24/research-tree/pkg/retree"
 )
 
@@ -145,7 +145,7 @@ func retree_update_node(handle uintptr, nodeJSON *C.char) *C.char {
 	if err := json.Unmarshal([]byte(C.GoString(nodeJSON)), &partial); err != nil {
 		return jsonError(err)
 	}
-	id, err := parsePartialNodeID(partial)
+	id, err := bridgejson.ParsePartialNodeID(partial)
 	if err != nil {
 		return jsonError(err)
 	}
@@ -181,33 +181,9 @@ func retree_update_node(handle uintptr, nodeJSON *C.char) *C.char {
 	return jsonResult(updated)
 }
 
-func parsePartialNodeID(partial map[string]json.RawMessage) (retree.NodeID, error) {
-	raw, ok := partial["id"]
-	if !ok {
-		return 0, fmt.Errorf("id required in update payload")
-	}
-	var num json.Number
-	if err := json.Unmarshal(raw, &num); err != nil {
-		return 0, fmt.Errorf("id must be a JSON number")
-	}
-	if i, err := strconv.ParseInt(num.String(), 10, 64); err == nil {
-		if i <= 0 {
-			return 0, fmt.Errorf("id must be positive")
-		}
-		if i > 1<<53 {
-			return 0, fmt.Errorf("id %q exceeds precise JSON integer range", num.String())
-		}
-		return retree.NodeID(i), nil
-	}
-	f, err := num.Float64()
-	if err != nil || math.Trunc(f) != f || f <= 0 {
-		return 0, fmt.Errorf("invalid id %q", num.String())
-	}
-	if f > float64(1<<53) {
-		return 0, fmt.Errorf("id %q exceeds precise JSON integer range", num.String())
-	}
-	return retree.NodeID(uint64(f)), nil
-}
+// parsePartialNodeID is provided by cmd/rt-bridge/internal/bridgejson, a
+// cgo-free package, so that CGO_ENABLED=0 vet/test of this package keeps
+// working (this file imports "C" and is excluded without cgo).
 
 //export retree_delete_node
 func retree_delete_node(handle uintptr, id uint64, force int32) *C.char {
