@@ -7,6 +7,9 @@ import (
 	"testing"
 )
 
+// TestSeparateRuntimePreservesHistoryAndRejectsOldHandle verifies that
+// separation is idempotent, keeps research history readable through a freshly
+// opened handle, and invalidates handles opened before the conversion.
 func TestSeparateRuntimePreservesHistoryAndRejectsOldHandle(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	old, err := Init(root, StorageBIN)
@@ -42,6 +45,8 @@ func TestSeparateRuntimePreservesHistoryAndRejectsOldHandle(t *testing.T) {
 	}
 }
 
+// TestSeparatedRuntimeSurvivesSnapshotRestore verifies that restoring a
+// snapshot captured before separation does not revert the runtime layout.
 func TestSeparatedRuntimeSurvivesSnapshotRestore(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	if err := SeparateRuntime(root); err != nil {
@@ -73,6 +78,8 @@ func TestSeparatedRuntimeSurvivesSnapshotRestore(t *testing.T) {
 	}
 }
 
+// TestInterruptedRuntimeCopyIsReconciled verifies that a partially written
+// .state directory is repaired by a repeated SeparateRuntime call.
 func TestInterruptedRuntimeCopyIsReconciled(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "research")
 	s, err := Init(root, StorageBIN)
